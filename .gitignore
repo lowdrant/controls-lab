@@ -57,3 +57,6 @@ Debug
 .xdchelp
 .config
 .launches
+/.metadata/
+.jxbrowser-data
+RemoteSystemsTempFiles
