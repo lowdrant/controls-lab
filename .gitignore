@@ -60,3 +60,6 @@ Debug
 /.metadata/
 .jxbrowser-data
 RemoteSystemsTempFiles
+
+# Don't push misc class documents
+misc/
