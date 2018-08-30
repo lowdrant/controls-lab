@@ -60,6 +60,9 @@ Debug
 /.metadata/
 .jxbrowser-data
 RemoteSystemsTempFiles
+# ignore project settings to
+.*project*
+.settings
 
 # Don't push misc class documents
 misc/
