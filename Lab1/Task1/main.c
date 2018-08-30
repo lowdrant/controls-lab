@@ -18,8 +18,10 @@ int main(void)
     // Bits 6 thru 3 are the important ones.
     //     bit 6 turns watchdog on (0) and off (1)
     //     bits 5-3 are an error check. Must be '101' every time WDCR is written. Else reset
+    EALLOW;
     WdRegs.WDCR.all = 0x68;
     WdRegs.WDCR.all = 0x28;
+    EDIS;
 
 	while (1) {
 	    fast++;  // increment fast every loop
@@ -28,7 +30,9 @@ int main(void)
 	    }
 
 	    // Reset watchdog constantly
+        EALLOW;
 	    WdRegs.WDKEY.all = 0x55;
 	    WdRegs.WDKEY.all = 0xAA;
+        EDIS;
 	}
 }
