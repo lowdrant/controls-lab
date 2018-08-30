@@ -1,0 +1,23 @@
+1. The purpose is to familiarize us with the C2000 family of microntrollers, the CCS IDE, and the basic needs and program setup that goes into creating a program for the C2000 family of MCUs, particuarly the watchdog timer.
+
+2. Some registers are protected to prevent potential malfunctions and bad code (e.g. indexing past array length) from getting into system-critical memory. The watchdog timer forces a system reset if the program hangs, or if a bad write to the watchdog registers occurs. Because MCUs are generally intended to run more-or-less unattended, there isn't someone watching it to hit the reset button if something goes awry.
+
+3. WDKEY.all allows us to reset the watchdog timer. To prevent unintentional timer resets, we have to write 2 instructions in sequence to reset the timer. Bad instructions reset this to the initial state. WDCR.all controls the setup of the watchdog timer. It allows us to set clock divison and turn it on and off. It also has reserved bits that serve as an error check. If WDCR.all is edited without those bits being set properly, the system resets.
+
+WDCR.all : Watch dog on and off
+ // Turn Watchdog off & back on, per lab instructions
+// 'off' bits: 00000000 | 0 | 1 | 101 | 000
+// 'on' bits:  00000000 | 0 | 0 | 101 | 000
+//
+// Bits 15-8 are reserved to be 0.
+// Bit 7 indicated the type of reset. 0 means that a power cycle caused the reset
+// Bits 6 thru 3 are the important ones.
+//     bit 6 turns watchdog on (0) and off (1)
+//     bits 5-3 are an error check. Must be '101' every time WDCR is written. Else reset
+// Bits 2-0 control clock division. 000 is the default, so I feel no need to change it.
+
+
+WDKEY.all : Reset the timer AKA feed the dog
+WdRegs.WDKEY.all = 0x55;  // Prime for feeding. If 0xAA comes next, feed. Otherwise don't
+WdRegs.WDKEY.all = 0xAA;  // Feed. Resets the timer
+// If 0xAA is not written, 0x55 must be written again to prime for 0xAA

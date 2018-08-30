@@ -29,10 +29,11 @@ int main(void)
 
     while (1) {
         // Compute x & y arrays
+        // x in range [0, 1]
         // use fast as index to save memory
-        if (fast < 5000) {
-            x[fast] = (float) fast / 5000;
-            y[fast] = cos(2 * PI * x);
+        if (fast < 5000) {                  // prevent out-of-bounds indexing
+            x[fast] = (float) fast / 5000;  // down convert from [0, 5000] to [0, 1]
+            y[fast] = cos(2 * PI * x[fast]);
         }
 
         // Counter incrementation
