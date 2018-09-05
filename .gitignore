@@ -65,3 +65,6 @@ RemoteSystemsTempFiles
 
 # Don't push misc class documents
 misc/
+
+# No prelabs
+*Prelab*
