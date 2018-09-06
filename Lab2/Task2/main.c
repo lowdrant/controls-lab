@@ -1,13 +1,13 @@
 /**
  * Lab2 Task2 for ECE4550 Fall 2018
  *
- * Program runs in Flash; Red LED toggles every 10^5 iterations
+ * Flash RED LED from Flash
  *
- * Author: Marion Anderson,
+ * Authors: Marion Anderson, Aditya Retnanto
  * Date: 2018-09-06
  */
+
 #include "F2837xD_device.h"
-#include "string.h"
 
 // Code from prelab
 extern Uint16 RamFuncs_loadstart;
@@ -29,7 +29,7 @@ void InitFlash(void)
     asm(" RPT #6 || NOP");
 }
 
-
+unsigned long loop_count = 0;  // loop counter
 int main(void)
 {
     // More from prelab
@@ -41,28 +41,34 @@ int main(void)
     // Register setup
     EALLOW;
     WdRegs.WDCR.all = 0x68;
+
+    // GPIO Setup
+    // disable blue led
+    GpioCtrlRegs.GPAGMUX2.bit.GPIO31 = 0;  // gpio output
+    GpioCtrlRegs.GPAMUX2.bit.GPIO31 = 0;
+    GpioCtrlRegs.GPADIR.bit.GPIO31 = 1;    // output
+    GpioCtrlRegs.GPAPUD.bit.GPIO31 = 0;     // enable pull-up resistor
+    GpioDataRegs.GPASET.bit.GPIO31 = 1;
+
+    // set up red led
+    GpioCtrlRegs.GPBGMUX1.bit.GPIO34 = 0;  // gpio output
+    GpioCtrlRegs.GPBMUX1.bit.GPIO34 = 0;
+    GpioCtrlRegs.GPBDIR.bit.GPIO34 = 1;    // output
+    GpioCtrlRegs.GPBPUD.bit.GPIO34 = 0;     // enable pull-up resistor
+    GpioDataRegs.GPBSET.bit.GPIO34 = 1;
+
     WdRegs.WDCR.all = 0x28;
-    // set up gpio
-    // See p943 for example mux bit layout
-    // GpioCtrlRegs.GP?DIR.bit.GPIO?  // Direction settings: 0->input; 1->output
-    // GpioCtrlRegs.GP?PUD.bit.GPIO?  // Pull-up/down settings
     EDIS;
 
-    // State variables
-    unsigned long loop_count = 0;  // loop counter
-    unsigned short led_state = 0;  // tracks LED on or off (off at first)
     while (1) {
         // check to toggle led
-        if (!loop_count % 10000){
-            led_state++;     // incrementing changes value in mod 2
-            led_state %= 2;  // reset state to be either 0 or 1
+        if (loop_count % 100000 == 0){
+            GpioDataRegs.GPBTOGGLE.bit.GPIO34 = 1;
         }
         loop_count++;
 
         // watchdog timer reset
-        EALLOW;
         WdRegs.WDKEY.all = 0x55;
         WdRegs.WDKEY.all = 0xAA;
-        EDIS;
     }
 }
