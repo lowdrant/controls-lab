@@ -61,6 +61,8 @@ Debug
 RemoteSystemsTempFiles
 # ignore project settings too
 .settings
+.cssproject
+.cproject
 
 # Don't push misc class documents
 misc/
