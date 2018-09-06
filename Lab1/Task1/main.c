@@ -6,8 +6,8 @@
  * File: main.c
  */
 #include "F2837xD_device.h"
-
 unsigned long slow = 0, fast = 0;  // counters to view program execution
+
 
 int main(void)
 {

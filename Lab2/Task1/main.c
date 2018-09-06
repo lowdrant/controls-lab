@@ -12,6 +12,7 @@
 #include "F2837xD_device.h"
 Uint16 tmp;  // global declaration for debugger
 
+
 int main(void)
 {
     // Configure MCU
