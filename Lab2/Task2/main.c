@@ -8,6 +8,8 @@
  */
 
 #include "F2837xD_device.h"
+unsigned long loop_count = 0;  // loop counter
+
 
 // Code from prelab
 extern Uint16 RamFuncs_loadstart;
@@ -29,7 +31,7 @@ void InitFlash(void)
     asm(" RPT #6 || NOP");
 }
 
-unsigned long loop_count = 0;  // loop counter
+
 int main(void)
 {
     // More from prelab
@@ -38,30 +40,29 @@ int main(void)
     memcpy(&RamFuncs_runstart, &RamFuncs_loadstart, (Uint32) &RamFuncs_loadsize);
     InitFlash();
 
-    // Register setup
     EALLOW;
     WdRegs.WDCR.all = 0x68;
 
     // GPIO Setup
     // disable blue led
-    GpioCtrlRegs.GPAGMUX2.bit.GPIO31 = 0;  // gpio output
+    GpioCtrlRegs.GPAGMUX2.bit.GPIO31 = 0;  // mux to gpio
     GpioCtrlRegs.GPAMUX2.bit.GPIO31 = 0;
     GpioCtrlRegs.GPADIR.bit.GPIO31 = 1;    // output
-    GpioCtrlRegs.GPAPUD.bit.GPIO31 = 0;     // enable pull-up resistor
-    GpioDataRegs.GPASET.bit.GPIO31 = 1;
+    GpioCtrlRegs.GPAPUD.bit.GPIO31 = 0;    // enable pull-up
+    GpioDataRegs.GPASET.bit.GPIO31 = 1;    // force blue OFF
 
     // set up red led
-    GpioCtrlRegs.GPBGMUX1.bit.GPIO34 = 0;  // gpio output
+    GpioCtrlRegs.GPBGMUX1.bit.GPIO34 = 0;
     GpioCtrlRegs.GPBMUX1.bit.GPIO34 = 0;
-    GpioCtrlRegs.GPBDIR.bit.GPIO34 = 1;    // output
-    GpioCtrlRegs.GPBPUD.bit.GPIO34 = 0;     // enable pull-up resistor
-    GpioDataRegs.GPBSET.bit.GPIO34 = 1;
+    GpioCtrlRegs.GPBDIR.bit.GPIO34 = 1;
+    GpioCtrlRegs.GPBPUD.bit.GPIO34 = 0;
+    GpioDataRegs.GPBSET.bit.GPIO34 = 1;    // off by default
 
     WdRegs.WDCR.all = 0x28;
     EDIS;
 
     while (1) {
-        // check to toggle led
+        // toggle led every 1-^5 iterations
         if (loop_count % 100000 == 0){
             GpioDataRegs.GPBTOGGLE.bit.GPIO34 = 1;
         }

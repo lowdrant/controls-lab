@@ -1,7 +1,7 @@
 /**
- * Task 2 for ECE4550 Fall 2018
+ * Lab 1 Task 2 for ECE4550 Fall 2018
  *
- * Author: Marion Anderson
+ * Author: Marion Anderson, Aditya Retnanto
  * Date: 2018-08-27
  * File: main.c
  */
