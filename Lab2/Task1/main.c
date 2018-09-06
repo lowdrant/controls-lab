@@ -5,10 +5,13 @@
  * J2-10 is GND
  * J4-10 is GPIO0
  *
- * Author: Marion Anderson,
+ * Authors: Marion Anderson, Aditya Retnanto
  * Date: 2018-09-06
  */
+
 #include "F2837xD_device.h"
+
+Uint16 tmp;
 
 int main(void)
 {
@@ -21,6 +24,14 @@ int main(void)
     GpioCtrlRegs.GPAGMUX2.bit.GPIO31 = 0;  // gpio output
     GpioCtrlRegs.GPAMUX2.bit.GPIO31 = 0;
     GpioCtrlRegs.GPADIR.bit.GPIO31 = 1;    // output
+    GpioCtrlRegs.GPAPUD.bit.GPIO31 = 0;     // enable pull-up resistor
+
+    // disable red led
+    GpioCtrlRegs.GPBGMUX1.bit.GPIO34 = 0;  // gpio output
+    GpioCtrlRegs.GPBMUX1.bit.GPIO34 = 0;
+    GpioCtrlRegs.GPBDIR.bit.GPIO34 = 1;    // output
+    GpioCtrlRegs.GPBPUD.bit.GPIO34 = 0;     // enable pull-up resistor
+    GpioDataRegs.GPBSET.bit.GPIO34 = 1;
 
     // pushbutton on gpio0
     GpioCtrlRegs.GPAGMUX1.bit.GPIO0 = 0;   // gpio input
@@ -32,19 +43,15 @@ int main(void)
     EDIS;
 
     // Execution Code
-    int state = 1;       // button state (0->L, 1->H)
-    int led_state = 1;   // led pin state (1->H->off, 0->L->on)
-    GpioDataRegs.GPASET.bit.GPIO31 = led_state;  // force led off
+    GpioDataRegs.GPASET.bit.GPIO31 = 1;  // force led off
     while (1) {
-        // Pushbutton control
-        // when pin goes low, button is pressed (because pull-up)
-        state = GpioDataRegs.GPADAT.bit.GPIO31;
-        if (state == 0) {
-            led_state++;     // increment led_state to switch mod2 state
-            led_state %= 2;  // mod 2 constrains to 0, 1
-            GpioDataRegs.GPASET.bit.GPIO31 = led_state;  // set LED to led_state
+        // Execution Code
+        tmp = GpioDataRegs.GPADAT.bit.GPIO0;
+        if (tmp == 0) {
+            GpioDataRegs.GPACLEAR.bit.GPIO31 = 1;
+        } else {
+            GpioDataRegs.GPASET.bit.GPIO31 = 1;
         }
-
 
         // watchdog timer reset
         WdRegs.WDKEY.all = 0x55;
