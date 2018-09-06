@@ -63,6 +63,7 @@ RemoteSystemsTempFiles
 .settings
 .cssproject
 .cproject
+.project
 
 # Don't push misc class documents
 misc/
