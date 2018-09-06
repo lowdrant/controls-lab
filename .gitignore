@@ -56,14 +56,16 @@ Debug
 .xdchelp
 .config
 .launches
-/.metadata/
+*.metadata/
 .jxbrowser-data
 RemoteSystemsTempFiles
+
 # ignore project settings too
-.settings
-.cssproject
-.cproject
-.project
+*.settings
+*.ccsproject
+*.cssproject
+*.cproject
+*.project
 
 # Don't push misc class documents
 misc/
