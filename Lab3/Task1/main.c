@@ -14,14 +14,8 @@
 #include "F2837xD_pievect.h"
 
 
-/** squareISR
- * Square wave interrupt on GPIO6
- *
- * global vars also set here
- */
-unsigned long interrupt_count = 0;  // how many times called
 interrupt void squareISR(void);
-
+Uint32 loop_count = 0;
 
 int main(void)
 {
@@ -43,26 +37,29 @@ int main(void)
     GpioCtrlRegs.GPAPUD.bit.GPIO31 = 0;
     GpioDataRegs.GPASET.bit.GPIO31 = 1;  // turn off led so know code works
 
-    // set system clock
-    ClkCfgRegs.CLKSRCCTL1.bit.OSCCLKSRCSEL = 0b01;  // XTAL clock source
-    ClkCfgRegs.SYSPLLCTL1.bit.PLLCLKEN = 0;         // disable PLL to edit
-    ClkCfgRegs.SYSCLKDIVSEL.all = 0;                // PLL divide of 1
-    ClkCfgRegs.SYSPLLMULT.all = 0;                  // clock divider (p.334)
-    while (ClkCfgRegs.SYSPLLSTS.bit.LOCKS != 1);    // wait for PLL lock
-    // ClkCfgRegs.SYSCLKDIVSEL.all = ;
-    DevCfgRegs.SYSDBGCTL.bit.BIT_0 = 1;
-    ClkCfgRegs.SYSPLLCTL1.bit.PLLCLKEN = 1;         // enable PLL
-    DevCfgRegs.SYSDBGCTL.bit.BIT_0 = 0;
-    // ClkCfgRegs.SYSCLKDIVSEL.all = ;
+    // oscillator clock (fosc)
+    ClkCfgRegs.CLKSRCCTL1.bit.OSCCLKSRCSEL = 1;   // external source
 
-    // set timer0 clock
+    // system clock (fclk) as PLL
+    ClkCfgRegs.SYSPLLCTL1.bit.PLLCLKEN = 0;       // disable PLL to edit
+    ClkCfgRegs.SYSCLKDIVSEL.all = 0;              // clear division register
+    ClkCfgRegs.SYSPLLMULT.all = 0;                // clock divider (p.334)
+    while (ClkCfgRegs.SYSPLLSTS.bit.LOCKS != 1);  // wait for PLL lock
+    ClkCfgRegs.SYSCLKDIVSEL.all = 1;              // 1+desired division
+    ClkCfgRegs.SYSPLLCTL1.bit.PLLCLKEN = 1;       // make PLL system clock
+    ClkCfgRegs.SYSCLKDIVSEL.all = 0;              // final clock division
+
+    // interrupt clock (timer0, ftmr)
     CpuSysRegs.PCLKCR0.bit.CPUTIMER0 = 0;  // turn off timer0 before edit
-
+    CpuTimer0Regs.TCR.bit.TSS = 1;         // stop timer0
+    CpuTimer0Regs.PRD.all = 20000 + 1;      // 20k fclk per ftmr (20Mhz->1kHz)
+    CpuTimer0Regs.TCR.bit.TRB = 1;         // load timer division
+    CpuTimer0Regs.TCR.bit.TIE = 1;         // Timer Interrupt Enable
+    CpuTimer0Regs.TCR.bit.TSS = 0;         // restart timer0
     CpuSysRegs.PCLKCR0.bit.CPUTIMER0 = 1;
 
     WdRegs.WDCR.all = 0x28;
     EDIS;
-    EINT;
 
     /* gpio6 interrupt setup
      *
@@ -77,27 +74,32 @@ int main(void)
      * 5. Enable interrupt path for group 1
      * 6. Re-enable interrupts in the CPU
      */
-    DINT;  // stop interrupts
     PieCtrlRegs.PIECTRL.bit.ENPIE = 1;     // enable interrupts
     PieVectTable.TIMER0_INT = &squareISR;  // assign square wave to TIMER0
     PieCtrlRegs.PIEIER1.bit.INTx7 = 1;     // enable TIMER0 interrupt
     IER = 1;                               // enable interrupt path for Group 1
-    EINT; // restart interrupts
+    EINT; // reenable interrupts
 
     while (1) {
+        // flash LED to show code is running
+        if (loop_count % 10000 == 0) {
+            GpioDataRegs.GPATOGGLE.bit.GPIO31 = 1;
+        }
+        loop_count++;
+
         WdRegs.WDKEY.all = 0x55;
         WdRegs.WDKEY.all = 0xAA;
     }
 }
 
 
+/** squareISR
+ * Square wave interrupt on GPIO6
+ *
+ * global vars also set here
+ */
 interrupt void squareISR(void)
 {
-    interrupt_count++;
-    // toggle voltage on pin 6
-    // every 20000 calls (20MHz down to 1kHz)
-    if (interrupt_count % 20000 == 0) {
-        GpioDataRegs.GPATOGGLE.bit.GPIO6 = 1;
-    }
+    GpioDataRegs.GPATOGGLE.bit.GPIO6 = 1;  // toggle voltage on pin 6
     PieCtrlRegs.PIEACK.all = M_INT1;       // acknowledge group1 interrupt to clear
 }
