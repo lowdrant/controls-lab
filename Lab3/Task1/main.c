@@ -43,11 +43,11 @@ int main(void)
     // system clock (fclk) as PLL
     ClkCfgRegs.SYSPLLCTL1.bit.PLLCLKEN = 0;       // disable PLL to edit
     ClkCfgRegs.SYSCLKDIVSEL.all = 0;              // clear division register
-    ClkCfgRegs.SYSPLLMULT.all = 0;                // clock divider (p.334)
+    ClkCfgRegs.SYSPLLMULT.all = 20;                // clock divider (p.334)
     while (ClkCfgRegs.SYSPLLSTS.bit.LOCKS != 1);  // wait for PLL lock
-    ClkCfgRegs.SYSCLKDIVSEL.all = 1;              // 1+desired division
+    ClkCfgRegs.SYSCLKDIVSEL.all = 11;              // 1+desired division
     ClkCfgRegs.SYSPLLCTL1.bit.PLLCLKEN = 1;       // make PLL system clock
-    ClkCfgRegs.SYSCLKDIVSEL.all = 0;              // final clock division
+    ClkCfgRegs.SYSCLKDIVSEL.all = 10;              // final clock division
 
     // interrupt clock (timer0, ftmr)
     CpuSysRegs.PCLKCR0.bit.CPUTIMER0 = 0;  // turn off timer0 before edit
