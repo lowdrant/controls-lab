@@ -23,6 +23,13 @@ int main(void)
     EALLOW;
     WdRegs.WDCR.all = 0x68;
 
+    // gpio6 as output
+    GpioCtrlRegs.GPAGMUX1.bit.GPIO6 = 0;
+    GpioCtrlRegs.GPAMUX1.bit.GPIO6 = 0;
+    GpioCtrlRegs.GPADIR.bit.GPIO6 = 1;
+    GpioCtrlRegs.GPAPUD.bit.GPIO6 = 0;
+    GpioDataRegs.GPACLEAR.bit.GPIO6 = 1;  // start low
+
     // enable blue led as output
     GpioCtrlRegs.GPAGMUX2.bit.GPIO31 = 0;
     GpioCtrlRegs.GPAMUX2.bit.GPIO31 = 0;
@@ -50,16 +57,12 @@ int main(void)
     ClkCfgRegs.SYSCLKDIVSEL.all = 2;              // fclk = 20 * 10 / 2 = 100MHz
 
     // interrupt clock (timer0, ftmr)
-    CpuSysRegs.PCLKCR0.bit.CPUTIMER0 = 0;  // turn off timer0 before edit
+    //CpuSysRegs.PCLKCR0.bit.CPUTIMER0 = 0;  // turn off timer0 before edit
     CpuTimer0Regs.TCR.bit.TSS = 1;         // stop timer0
-    CpuTimer0Regs.PRD.all = 50e6 - 1;      // 20k fclk per ftmr (20Mhz->1kHz)
+    CpuTimer0Regs.PRD.all = 25e6 - 1;      // 20k fclk per ftmr (20Mhz->1kHz)
     CpuTimer0Regs.TCR.bit.TRB = 1;         // load timer division
     CpuTimer0Regs.TCR.bit.TIE = 1;         // Timer Interrupt Enable
-    CpuTimer0Regs.TCR.bit.TSS = 0;         // restart timer0
-    CpuSysRegs.PCLKCR0.bit.CPUTIMER0 = 1;
 
-    WdRegs.WDCR.all = 0x28;
-    EDIS;
     /* Using TIMER0 for interrupt
      * TIMER0 => INT1.y, INTx.7 => INT1.7
      * The interrupt is in Group 1, Interrupt 7
@@ -75,6 +78,11 @@ int main(void)
     PieVectTable.TIMER0_INT = &blinkISR;  // assign square wave to TIMER0
     PieCtrlRegs.PIEIER1.bit.INTx7 = 1;    // enable TIMER0 interrupt
     IER = 1;                              // enable interrupt path for Group 1
+
+    CpuTimer0Regs.TCR.bit.TSS = 0;        // restart timer0
+    // CpuSysRegs.PCLKCR0.bit.CPUTIMER0 = 1;
+    WdRegs.WDCR.all = 0x28;
+    EDIS;
     EINT; // reenable interrupts
 
     while (1) {
@@ -93,25 +101,30 @@ interrupt void blinkISR(void)
 {
     switch (state) {
     case 1:
-        GpioDataRegs.GPACLEAR.bit.GPIO31 = 1;  // 0
-        GpioDataRegs.GPBSET.bit.GPIO34 = 1;    // 1
+        GpioDataRegs.GPACLEAR.bit.GPIO31 = 1;  // H
+        GpioDataRegs.GPBSET.bit.GPIO34 = 1;    // L
+        GpioDataRegs.GPATOGGLE.bit.GPIO6 = 1;
         state = 2;
         break;
     case 2:
-        GpioDataRegs.GPASET.bit.GPIO31 = 1;    // 1
-        GpioDataRegs.GPBCLEAR.bit.GPIO34 = 1;  // 0
+        GpioDataRegs.GPASET.bit.GPIO31 = 1;    // L
+        GpioDataRegs.GPBCLEAR.bit.GPIO34 = 1;  // H
+        GpioDataRegs.GPATOGGLE.bit.GPIO6 = 1;
         state = 3;
         break;
     case 3:
-        GpioDataRegs.GPASET.bit.GPIO31 = 1;    // 1
-        GpioDataRegs.GPBSET.bit.GPIO34 = 1;    // 1
+        GpioDataRegs.GPACLEAR.bit.GPIO31 = 1;    // H
+        GpioDataRegs.GPBCLEAR.bit.GPIO34 = 1;    // H
+        GpioDataRegs.GPATOGGLE.bit.GPIO6 = 1;
         state = 0;
         break;
     default:  // reset/state=0
-        GpioDataRegs.GPACLEAR.bit.GPIO31 = 1;  // 0
-        GpioDataRegs.GPBCLEAR.bit.GPIO34 = 1;  // 0
+        GpioDataRegs.GPASET.bit.GPIO31 = 1;      // L
+        GpioDataRegs.GPBSET.bit.GPIO34 = 1;      // L
+        GpioDataRegs.GPATOGGLE.bit.GPIO6 = 1;
         state = 1;
         break;
     }
+
     PieCtrlRegs.PIEACK.all = M_INT1;       // acknowledge group1 interrupt to clear
 }
