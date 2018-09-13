@@ -50,16 +50,11 @@ int main(void)
     ClkCfgRegs.SYSCLKDIVSEL.all = 10;              // final clock division
 
     // interrupt clock (timer0, ftmr)
-    CpuSysRegs.PCLKCR0.bit.CPUTIMER0 = 0;  // turn off timer0 before edit
+    // CpuSysRegs.PCLKCR0.bit.CPUTIMER0 = 0;  // turn off timer0 before edit
     CpuTimer0Regs.TCR.bit.TSS = 1;         // stop timer0
-    CpuTimer0Regs.PRD.all = 20000 + 1;      // 20k fclk per ftmr (20Mhz->1kHz)
+    CpuTimer0Regs.PRD.all = 5000 - 1;      // 20k fclk per ftmr (20Mhz->1kHz)
     CpuTimer0Regs.TCR.bit.TRB = 1;         // load timer division
     CpuTimer0Regs.TCR.bit.TIE = 1;         // Timer Interrupt Enable
-    CpuTimer0Regs.TCR.bit.TSS = 0;         // restart timer0
-    CpuSysRegs.PCLKCR0.bit.CPUTIMER0 = 1;
-
-    WdRegs.WDCR.all = 0x28;
-    EDIS;
 
     /* gpio6 interrupt setup
      *
@@ -78,7 +73,13 @@ int main(void)
     PieVectTable.TIMER0_INT = &squareISR;  // assign square wave to TIMER0
     PieCtrlRegs.PIEIER1.bit.INTx7 = 1;     // enable TIMER0 interrupt
     IER = 1;                               // enable interrupt path for Group 1
-    EINT; // reenable interrupts
+
+    // renable timers & interrupts
+    CpuTimer0Regs.TCR.bit.TSS = 0;
+    // CpuSysRegs.PCLKCR0.bit.CPUTIMER0 = 1;
+    WdRegs.WDCR.all = 0x28;
+    EDIS;
+    EINT;
 
     while (1) {
         // flash LED to show code is running
