@@ -5,7 +5,9 @@
  *
  * Output an analog voltage on J3-10 (ADCINA0)
  * Read said voltage on J3-9 (ADCINA2)
- * v(t) = 1.5 + 0.5cos(2*pi*1000*t)
+ * v(t) = 1.5 + 0.5cos(2*pi*1000*t) + 0.1*cos(f2*t)
+ * Output filtered signal on J7-10
+ * Read voltage again on J7-9
  *
  * Authors: Marion Anderson, Aditya Retnanto
  * Date: 2018-09-27
@@ -24,7 +26,7 @@
 
 // noisy signal parameters
 int t = 0;          // time value for voltage waveform
-float vnoise = 2;       // output voltage
+float vnoise = 2.1;       // output voltage
 float vnoise_r;           // ADC instantaneous read value
 float v_j310[400];  // ideal input
 float v_j39[400];  // actual input
@@ -77,14 +79,14 @@ int main(void)
     ClkCfgRegs.SYSCLKDIVSEL.all = 0;              // final clock division
 
     // DAC Setup (fdac = ftmr, default)
-    CpuSysRegs.PCLKCR16.bit.DAC_A = 1;       // turn on DAC clock
-    CpuSysRegs.PCLKCR16.bit.DAC_B = 1;       // turn on DAC clock
-    DacaRegs.DACCTL.bit.DACREFSEL = 1;       // use VREFHI
-    DacaRegs.DACOUTEN.bit.DACOUTEN = 1;      // enable dac
-    DacaRegs.DACVALS.all = 4096 * 2.0 / VREF;  // init vout of 2V
-    DacbRegs.DACCTL.bit.DACREFSEL = 1;       // use VREFHI
-    DacbRegs.DACOUTEN.bit.DACOUTEN = 1;      // enable dac
-    DacbRegs.DACVALS.all = 4096 * 0 / VREF;  // init vout of 2V
+    CpuSysRegs.PCLKCR16.bit.DAC_A = 1;         // turn on DACA clock
+    CpuSysRegs.PCLKCR16.bit.DAC_B = 1;         // turn on DACB clock
+    DacaRegs.DACCTL.bit.DACREFSEL = 1;         // use VREFHI
+    DacaRegs.DACOUTEN.bit.DACOUTEN = 1;        // enable DAVA
+    DacaRegs.DACVALS.all = 4096 * 2.1 / VREF;  // init voutA of 2.1V
+    DacbRegs.DACCTL.bit.DACREFSEL = 1;         // use VREFHI
+    DacbRegs.DACOUTEN.bit.DACOUTEN = 1;        // enable DACB
+    DacbRegs.DACVALS.all = 4096 * 0 / VREF;    // init voutB of 0V
 
     // ADC Setup | clocking & triggers: fadc = 50MHz, 12-bit mode
     CpuSysRegs.PCLKCR13.bit.ADC_A = 1;    // enable ADC clock
@@ -104,22 +106,20 @@ int main(void)
 
     // Interrupt Timer (timer0, ftmr)
     // from 200MHz to 100kHz
-    CpuTimer0Regs.TCR.bit.TSS = 1;         // stop timer0
-    CpuTimer0Regs.PRD.all = 2000 - 1;      // 200Mhz->100kHz
-    CpuTimer0Regs.TCR.bit.TRB = 1;         // load timer division
-    CpuTimer0Regs.TCR.bit.TIE = 1;         // Timer Interrupt Enable
+    CpuTimer0Regs.TCR.bit.TSS = 1;     // stop timer0
+    CpuTimer0Regs.PRD.all = 2000 - 1;  // 200Mhz->100kHz
+    CpuTimer0Regs.TCR.bit.TRB = 1;     // load timer division
+    CpuTimer0Regs.TCR.bit.TIE = 1;     // Timer Interrupt Enable
 
     // Interrupt Assignment
-    // (adca1 - J3-10 is grpa, chose int1)
+    // (adca1 - J3-10 is grpa, chose int1 arbitrarily)
     PieCtrlRegs.PIECTRL.bit.ENPIE = 1;
-//    PieVectTable.TIMER0_INT = &TimerIsr;  // using timer0
-    PieVectTable.ADCA1_INT = &AdcIsr;     // (group a, chose INT1
+    PieVectTable.ADCA1_INT = &AdcIsr;  // (group a, INT1)
     PieCtrlRegs.PIEIER1.bit.INTx1 = 1;
-//    PieCtrlRegs.PIEIER1.bit.INTx7 = 1;
     IER = 1;
 
     // wait 500us at SYSCLK = 200MHz
-    // (100000 cycles)
+    // (1000 cycles)
     Uint32 j = 0;
     for (j = 0; j < 1000; j++) {}
     CpuTimer0Regs.TCR.bit.TSS = 0; WdRegs.WDCR.all = 0x28; EDIS; EINT;
@@ -136,13 +136,11 @@ int main(void)
 /** AdcIsr
  *
  * Handles DAC & ADC control on ADCAINT1
- * In order:
- * Output new vo
- * Read current vi
- * Store vi
- * Compute next vo
+ * Outputs & reads noisy signal
+ * Filters noisy signal
+ * Outputs & reads filtered signal
  *
- * vo = 1.5 + 0.5 * cos(2*pi*1000*t)
+ * vo = 1.5 + 0.5 * cos(2*pi*1000*t) + 0.1*cos(f2*t)
  * Frequency: 100kHz
  *
  */
@@ -184,6 +182,3 @@ interrupt void AdcIsr(void)
     AdcaRegs.ADCINTFLGCLR.bit.ADCINT1 = 1;
     PieCtrlRegs.PIEACK.all = M_INT1;
 }
-
-
-
