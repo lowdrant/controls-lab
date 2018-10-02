@@ -43,7 +43,7 @@ int main(void)
     GpioCtrlRegs.GPAPUD.bit.GPIO31 = 0;
     GpioDataRegs.GPASET.bit.GPIO31 = 1;  // turn off led so know code works
 
-    // Clocking (fclk = 10MHz)
+    // Clocking (fclk = 100 MHz)
     ClkCfgRegs.CLKSRCCTL1.bit.OSCCLKSRCSEL = 1;   // external source (10 MHz)
     ClkCfgRegs.SYSPLLCTL1.bit.PLLCLKEN = 0;       // disable PLL to edit
     ClkCfgRegs.SYSCLKDIVSEL.all = 0;              // clear division register
