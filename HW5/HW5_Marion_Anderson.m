@@ -3,7 +3,7 @@
 % ECE 4550 Fall 2018
 % HW 5
 
-clear clc close all
+clear; clc; close all
 
 M1 = 1; M2 = 1;
 
@@ -33,13 +33,35 @@ disp(det(scriptC))
 %% 5.2: Regulator Gains
 
 % regulator gain matrix
-syms K1 K2 K3 K4
+syms K1 K2 K3 K4 s
 K = [K1 K2 K3 K4];
 
 sR = -10;  % desired pole location
 
-K = acker(A, B, sR*ones(1, length(A)))
-eig(A - B*K)
+% Symbolic (K) char poly coeffs
+KPoly = det(eye(length(A))*s - (A - B*K))
+KCoeffs = coeffs(KPoly, s)
+
+% Numeric char poly coeffs
+RegPoly = expand((s-sR)^length(A))
+RegCoeffs = coeffs(RegPoly, s)
+
+% Solve for K from coeffs
+KValsStruct = solve(RegCoeffs == KCoeffs);
+
+% Extract K values
+KNames = fieldnames(KValsStruct);
+K = [];
+for i = 1:length(KNames)
+    K = [K double(KValsStruct.(KNames{i}))];
+end
+disp('--------------------------------------------------------')
+K
+disp('--------------------------------------------------------')
+
+% Check
+AminusBKeig = eig(A - B*K)
+
 
 %% 5.3: Observability
 
@@ -64,8 +86,27 @@ syms L1 L2 L3 L4
 L = [L1; L2; L3; L4];
 
 sL = -10;  % desired pole location
-AL = A - L*C  % estimator system matrix
 
-% solving for gains
-L = acker(A', C', sL*ones(1, length(A)))'
-eig(A - L*C)
+% Symbolic (L) char poly coeffs
+LPoly = det(eye(length(A))*s - (A - L*C))
+LCoeffs = coeffs(LPoly, s)
+
+% Numeric char poly coeffs
+EstPoly = expand((s-sR)^length(A))
+EstCoeffs = coeffs(EstPoly, s)
+
+% Solve for K from coeffs
+LValsStruct = solve(EstCoeffs == LCoeffs);
+
+% Extract K values
+LNames = fieldnames(LValsStruct);
+L = [];
+for i = 1:length(LNames)
+    L = [L; double(LValsStruct.(LNames{i}))];
+end
+disp('--------------------------------------------------------')
+L
+disp('--------------------------------------------------------')
+
+% Check
+AminusLCeig = eig(A - L*C)
