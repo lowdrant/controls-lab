@@ -1,30 +1,26 @@
 /**
- * Lab5 Task1 for ECE4550 Fall 2018
+ * Lab5 Task2 for ECE4550 Fall 2018
  *
  * Goal:
- * Create an arbitrary output voltage pattern from a 24VDC input.
- * Uses the DRV8305 booster pack
- *
- * Specifics:
- * - Vin is 24VDC
- * - Vo changes every 0.2s
- * - Vo needs to be between phases A and B on the booster pack
- * - Vo goes: +20V -> 0V -> -20V -> 0V -> +20V
- *      ____                ____
- * ____|    |____      ____|    |____
- *               |____|
- *
- * - Negative Vo can be accomplished by forcing B high and A low
+ * Control a bidirectional DC motor using the PWM from Task1.
+ * Read the rotation of the motor from an encoder on J14 (QEP1).
  *
  * Authors: Marion Anderson, Aditya Retnanto
  * Date: 2018-10-04
  */
 
 #include "F2837xD_device.h"
+#ifndef REVTICKS
+#define REVTICKS 360
+#endif
+
 
 Uint16 state = 0;       // Vo state tracker
 Uint32 tmr0_count = 0;  // software "clock divider" for incrementing states
-interrupt void vcalcISR(void);
+vavg = 20;              // track desired avg voltage
+float vodes[2000];      // log desired average voltage
+float theta[2000];      // log actual angular position
+interrupt void TimerISR(void);
 
 
 int main(void)
@@ -94,13 +90,23 @@ int main(void)
     // ----------------------------
     CpuSysRegs.PCLKCR0.bit.TBCLKSYNC = 1;
 
+    // QEP Setup
+    GpioCtrlRegs.GPAGMUX2.bit.GPIO20 = 0; GpioCtrlRegs.GPAMUX2.bit.GPIO20 = 1;
+    GpioCtrlRegs.GPAGMUX2.bit.GPIO21 = 0; GpioCtrlRegs.GPAMUX2.bit.GPIO21 = 1;
+    GpioCtrlRegs.GPAGMUX2.bit.GPIO23 = 0; GpioCtrlRegs.GPAMUX2.bit.GPIO23 = 1;
+    CpuSysRegs.PCLKCR4.bit.EQEP1 = 1; asm(" NOP"); asm(" NOP");
+    EQep1Regs.QPOSMAX = 0xFFFFFFFF;  // MAXIMUM COUNTER!!
+    EQep1Regs.QPOSINIT = 0;          // init value of 0
+    EQep1Regs.QEPCTL.bit.QPEN = 1;   // enable qep1
+    EQep1Regs.QEPCTL.bit.SWI = 1;    // activate counter
+
     // Timer0 Interrupt (ftmr=1kHz)
     CpuTimer0Regs.TCR.bit.TSS = 1;         // stop timer0
     CpuTimer0Regs.PRD.all = 200e3 - 1;     // 200Mhz->1kHz
     CpuTimer0Regs.TCR.bit.TRB = 1;         // load timer division
     CpuTimer0Regs.TCR.bit.TIE = 1;         // Timer Interrupt Enable
     PieCtrlRegs.PIECTRL.bit.ENPIE = 1;
-    PieVectTable.TIMER0_INT = &vcalcISR;
+    PieVectTable.TIMER0_INT = &TimerISR;
     PieCtrlRegs.PIEIER1.bit.INTx7 = 1;
     IER = 1;
 
@@ -115,21 +121,32 @@ int main(void)
 }
 
 
-/** vcalcISR
+/** TimerISR
  *
  * 2 Tasks:
- * - Update PWM to output desired vavg
- * - Increment state machine to update vavg
+ * - Control voltage according to state machine
+ * - Read position
  *
- * The booster pack will control a bidirectional DC motor, and will be
- * in 6-input mode, so we need to control 4 outputs, or 2PWM modules.
- * Make the PWMxA and PWMxB to push-pull
  *
+ * Voltage Control
+ * - Vo goes: +20V -> 0V -> -20V -> 0V -> +20V
+ * - Vin is 24VDC
+ * - Vo changes every 0.2s
+ * - Vo needs to be between phases A and B on the booster pack
+ *      ____                ____
+ * ____|    |____      ____|    |____
+ *               |____|
+ *
+ * Booster pack is in 6-input mode, so we
+ * need to control 4 outputs, or 2PWM modules.
  * PWM1A -> INHA
  * PWM1B -> INLA
  * PWM2A -> INHB
  * PWM2B -> INLB
  *
+ * Position Reading:
+ * - Read EQep1Regs.QPOSCNT to get how many ticks
+ * - Convert ticks to angle
  *
  *
  * The switch-case body of the code looks a little weird/lopsided because
@@ -137,7 +154,7 @@ int main(void)
  * to the next state. This is so we are ready to go on the next interrupt.
  *
  */
-interrupt void vcalcISR(void)
+interrupt void TimerISR(void)
 {
     // logic for switching state
     // switch state every 200 timer0 interrupts (1kHz -> 0.2s)
@@ -154,6 +171,8 @@ interrupt void vcalcISR(void)
                 EPwm2Regs.AQCTLA.bit.CAD = 0b10;  // 2A high on downcount
                 EPwm2Regs.AQCTLB.bit.CAU = 0b10;  // 2B high on upcount
                 EPwm2Regs.AQCTLB.bit.CAD = 0b01;  // 2B low on downcount
+
+                vavg = 20;
                 state = 1;  // update state
                 break;
 
@@ -168,6 +187,7 @@ interrupt void vcalcISR(void)
                 EPwm2Regs.AQCTLA.bit.CAD = 1;
                 EPwm2Regs.AQCTLB.bit.CAU = 1;
                 EPwm2Regs.AQCTLB.bit.CAD = 1;
+                vavg = 0;
                 state = 2;
                 break;
 
@@ -182,6 +202,7 @@ interrupt void vcalcISR(void)
                 EPwm2Regs.AQCTLA.bit.CAD = 0b01;
                 EPwm2Regs.AQCTLB.bit.CAU = 0b01;
                 EPwm2Regs.AQCTLB.bit.CAD = 0b10;
+                vavg = -20;
                 state = 3;
                 break;
 
@@ -196,9 +217,17 @@ interrupt void vcalcISR(void)
                 EPwm2Regs.AQCTLA.bit.CAD = 1;
                 EPwm2Regs.AQCTLB.bit.CAU = 1;
                 EPwm2Regs.AQCTLB.bit.CAD = 1;
+                vavg = 0;
                 state = 0;
                 break;
         }
+    }
+
+    // Log data
+    // use tmr0_count as the indexer for data
+    if (tmr0_count < 2000) {
+        vodes[tmr0_count] = vavg;
+        theta[tmr0_count] = EQep1Regs.QPOSCNT / (float) REVTICKS;l
     }
 
     tmr0_count++;
