@@ -26,7 +26,7 @@
 
 // noisy signal parameters
 int t = 0;          // time value for voltage waveform
-float vnoise = 2.1;       // output voltage
+// float vnoise = 2.1;       // output voltage
 float vnoise_r;           // ADC instantaneous read value
 float v_j310[400];  // ideal input
 float v_j39[400];  // actual input
@@ -103,7 +103,6 @@ int main(void)
     AdcaRegs.ADCINTSEL1N2.bit.INT1SEL = 0;  // EOC0 trigger because used SOC0
     AdcaRegs.ADCINTSEL1N2.bit.INT1E = 1;    // ADCINT1 enable
 
-
     // Interrupt Timer (timer0, ftmr)
     // from 200MHz to 100kHz
     CpuTimer0Regs.TCR.bit.TSS = 1;     // stop timer0
@@ -165,7 +164,6 @@ interrupt void AdcIsr(void)
     vo_d2 = vo_d1;
     vo_d1 = vfilt;
     vnoise = 1.5 + 0.5*cos(f1*t) + 0.1*cos(f2*t);  // f auto scales t
-
 
     // storage
     vnoise_r = tmpj39 * VREF / 4096.0;

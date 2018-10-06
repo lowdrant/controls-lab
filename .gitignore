@@ -72,3 +72,6 @@ misc/
 
 # No prelabs
 *Prelab*
+
+# VSCode
+.vscode
