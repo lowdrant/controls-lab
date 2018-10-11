@@ -10,6 +10,9 @@
  */
 
 #include "F2837xD_device.h"
+#ifndef VIN
+#define VIN 24
+#endif
 
 Uint16 state = 0;       // Vo state tracker
 Uint32 tmr0_count = 0;  // software "clock divider" for incrementing states
@@ -42,7 +45,6 @@ int main(void)
     // PWM1 Setup: Booster Pack Phase A Control
     GpioCtrlRegs.GPAGMUX1.bit.GPIO0 = 0; GpioCtrlRegs.GPAMUX1.bit.GPIO0 = 1;
     GpioCtrlRegs.GPAGMUX1.bit.GPIO1 = 0; GpioCtrlRegs.GPAMUX1.bit.GPIO1 = 1;
-    // clock
     CpuSysRegs.PCLKCR2.bit.EPWM1 = 1;    // module clk EN
     asm(" NOP"); asm(" NOP");            // critical wait
     EPwm1Regs.TBCTL.bit.CTRMODE = 0b10;  // up-down count mode
@@ -57,8 +59,8 @@ int main(void)
     EPwm1Regs.AQCTLB.bit.CAD = 0b10;     // 1B high in downcount
 
     // PWM2 Setup: Booster Pack Phase B Control
+    GpioCtrlRegs.GPAGMUX1.bit.GPIO2 = 0; GpioCtrlRegs.GPAMUX1.bit.GPIO2 = 1;
     GpioCtrlRegs.GPAGMUX1.bit.GPIO3 = 0; GpioCtrlRegs.GPAMUX1.bit.GPIO3 = 1;
-    GpioCtrlRegs.GPAGMUX1.bit.GPIO4 = 0; GpioCtrlRegs.GPAMUX1.bit.GPIO4 = 1;
     CpuSysRegs.PCLKCR2.bit.EPWM2 = 1;  // clock setup
     asm(" NOP"); asm(" NOP");
     EPwm2Regs.TBCTL.bit.CTRMODE = 0b10;
@@ -70,6 +72,17 @@ int main(void)
     EPwm2Regs.AQCTLA.bit.CAD = 0b10;
     EPwm2Regs.AQCTLB.bit.CAU = 0b10;
     EPwm2Regs.AQCTLB.bit.CAD = 0b01;
+
+    // Boosterpack ENGATE
+    // force HIGH
+    GpioCtrlRegs.GPDGMUX2.bit.GPIO124 = 0;
+    GpioCtrlRegs.GPDMUX2.bit.GPIO124 = 0;
+    GpioCtrlRegs.GPDDIR.bit.GPIO124 = 1;
+    GpioCtrlRegs.GPDPUD.bit.GPIO124 = 0;
+    GpioDataRegs.GPDSET.bit.GPIO124 = 1;
+    // wait 1ms at 200MHz
+    Uint32 j;
+    for (j=0; j<200000; j++) {}
 
     // Timer0 Interrupt (ftmr=1kHz)
     CpuTimer0Regs.TCR.bit.TSS = 1;      // stop timer0
@@ -129,62 +142,38 @@ interrupt void vcalcISR(void)
 {
     // logic for switching state
     // switch state every 200 timer0 interrupts (1kHz -> 0.2s)
-    if (tmr0_count % 200 == 0) {
+    if (tmr0_count % 2000 == 0) {
         switch (state) {
 
             // +20V
             // duty cycle of 91.7% to get vo=20V with current parameters
             case 0:
-                EPwm1Regs.AQCTLA.bit.CAU = 0b10;  // 1A high on upcount
-                EPwm1Regs.AQCTLA.bit.CAD = 0b01;  // 1A low on downcount
-                EPwm1Regs.AQCTLB.bit.CAU = 0b01;  // 1B low on upcount
-                EPwm1Regs.AQCTLB.bit.CAD = 0b10;  // 1B high in downcount
-                EPwm2Regs.AQCTLA.bit.CAU = 0b01;  // 2A low on upcount
-                EPwm2Regs.AQCTLA.bit.CAD = 0b10;  // 2A high on downcount
-                EPwm2Regs.AQCTLB.bit.CAU = 0b10;  // 2B high on upcount
-                EPwm2Regs.AQCTLB.bit.CAD = 0b01;  // 2B low on downcount
+                EPwm1Regs.CMPA.bit.CMPA = 166;
+                EPwm2Regs.CMPA.bit.CMPA = 166;
                 state = 1;  // update state
                 break;
 
             // 0V
+            // d=0.5 gives vavg=0
             case 1:
-                // force everything low for High-Z mode
-                EPwm1Regs.AQCTLA.bit.CAU = 1;
-                EPwm1Regs.AQCTLA.bit.CAD = 1;
-                EPwm1Regs.AQCTLB.bit.CAU = 1;
-                EPwm1Regs.AQCTLB.bit.CAD = 1;
-                EPwm2Regs.AQCTLA.bit.CAU = 1;
-                EPwm2Regs.AQCTLA.bit.CAD = 1;
-                EPwm2Regs.AQCTLB.bit.CAU = 1;
-                EPwm2Regs.AQCTLB.bit.CAD = 1;
+                EPwm1Regs.CMPA.bit.CMPA = 1000;
+                EPwm2Regs.CMPA.bit.CMPA = 1000;
                 state = 2;
                 break;
 
-            // -20VDC
+            // -20V
             // mirror of state 0 (same duty cycle, flipped output)
             case 2:
-                EPwm1Regs.AQCTLA.bit.CAU = 0b01;
-                EPwm1Regs.AQCTLA.bit.CAD = 0b10;
-                EPwm1Regs.AQCTLB.bit.CAU = 0b10;
-                EPwm1Regs.AQCTLB.bit.CAD = 0b01;
-                EPwm2Regs.AQCTLA.bit.CAU = 0b10;
-                EPwm2Regs.AQCTLA.bit.CAD = 0b01;
-                EPwm2Regs.AQCTLB.bit.CAU = 0b01;
-                EPwm2Regs.AQCTLB.bit.CAD = 0b10;
+                EPwm1Regs.CMPA.bit.CMPA = 1834;
+                EPwm2Regs.CMPA.bit.CMPA = 1834;
                 state = 3;
                 break;
 
             // 0VDC
+            // d=0.5 gives vavg=0
             case 3:
-                // force everything low for High-Z mode
-                EPwm1Regs.AQCTLA.bit.CAU = 1;
-                EPwm1Regs.AQCTLA.bit.CAD = 1;
-                EPwm1Regs.AQCTLB.bit.CAU = 1;
-                EPwm1Regs.AQCTLB.bit.CAD = 1;
-                EPwm2Regs.AQCTLA.bit.CAU = 1;
-                EPwm2Regs.AQCTLA.bit.CAD = 1;
-                EPwm2Regs.AQCTLB.bit.CAU = 1;
-                EPwm2Regs.AQCTLB.bit.CAD = 1;
+                EPwm1Regs.CMPA.bit.CMPA = 1000;
+                EPwm2Regs.CMPA.bit.CMPA = 1000;
                 state = 0;
                 break;
         }
