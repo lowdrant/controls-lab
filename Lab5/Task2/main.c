@@ -15,8 +15,11 @@
 #ifndef PWM_MAX_COUNT  // PWM Maximum Count
 #define PWM_MAX_COUNT 2000
 #endif
+#ifndef PI
+#define PI 3.14159
+#endif
 #ifndef TICKS_PER_REV  // QEP Ticks per Revolution
-#define TICKS_PER_REV 1000  // float to avoid integer div
+#define TICKS_PER_REV 1000
 #endif
 #ifndef LOG_LENGTH     // data points in data loggers
 #define LOG_LENGTH 2000
@@ -30,6 +33,8 @@ Uint16 i;                     // index of data arrays
 int vo = 20;                  // track desired avg voltage
 float vo_log[LOG_LENGTH];     // log desired average voltage
 float theta_log[LOG_LENGTH];  // log actual angular position
+long ticks;
+float theta;
 
 // State Machine Control
 Uint16 state = 0;       // Output voltage state tracker
@@ -216,8 +221,8 @@ interrupt void TimerISR(void)
     }
 
     // QEP reading & logging
-    long ticks = EQep1Regs.QPOSCNT;  // convert Uint32 to int32
-    float theta = (float) ticks / TICKS_PER_REV;  // TICKS_PER_REV is float
+    ticks = EQep1Regs.QPOSCNT;  // convert Uint32 to int32
+    theta = (float) ticks * 2*PI / TICKS_PER_REV;
     if (i < LOG_LENGTH) {
         vo_log[i] = vo;
         theta_log[i] = theta;
