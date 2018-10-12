@@ -149,14 +149,14 @@ interrupt void TimerISR(void)
 {
     // logic for switching state
     // switch state every 200 timer0 interrupts (1kHz -> 0.2s)
-    if (tmr0_count % 200 == 0) {
+    if (tmr0_count % 2000 == 0) {
         switch (state) {
 
             // +20V
             // duty cycle of 91.7% to get vo=20V with current parameters
             case 0:
-                EPwm1Regs.CMPA.bit.CMPA = 167;
-                EPwm2Regs.CMPA.bit.CMPA = 167;
+                EPwm1Regs.CMPA.bit.CMPA = 166;
+                EPwm2Regs.CMPA.bit.CMPA = 166;
                 state = 1;  // update state
                 break;
 
