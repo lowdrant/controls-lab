@@ -75,3 +75,6 @@ misc/
 
 # VSCode
 .vscode
+
+# Ignore copyrighted parts of this class
+Lab6/Task1

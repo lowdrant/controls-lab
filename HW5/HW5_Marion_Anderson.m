@@ -92,7 +92,7 @@ LPoly = det(eye(length(A))*s - (A - L*C))
 LCoeffs = coeffs(LPoly, s)
 
 % Numeric char poly coeffs
-EstPoly = expand((s-sR)^length(A))
+EstPoly = expand((s-sL)^length(A))
 EstCoeffs = coeffs(EstPoly, s)
 
 % Solve for K from coeffs
