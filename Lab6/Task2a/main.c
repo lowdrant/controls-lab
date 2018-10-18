@@ -2,8 +2,10 @@
  * Lab6 Task2a for ECE4550 Fall 2018
  *
  * Goal:
- * Move a DC motor between 2 set angular positions using
+ * Move a DC motor between 0 and 2PI
  * state space PI control. Transition time should take 1s.
+ *
+ * Log 2 full cycles (4000 interrupts)
  *
  * Motor model based off of data collected in Lab5 Task2
  *
@@ -13,55 +15,59 @@
 #include "F2837xD_device.h"
 #include "math.h"
 
-#ifndef VIN            // System Input Voltage
-#define VIN 24
+#ifndef VIN
+#define VIN 24              // System Input Voltage
 #endif
-#ifndef PWM_MAX_COUNT  // PWM Maximum Count
-#define PWM_MAX_COUNT 2000
+#ifndef PWM_MAX_COUNT
+#define PWM_MAX_COUNT 2000  // PWM Maximum Count
 #endif
 #ifndef PI
 #define PI 3.14159
 #endif
-#ifndef TWOPI          // to reduce computation time
-#define TWOPI 2*PI
+float32 TWOPI = 2*PI;
+#ifndef TICKS_PER_REV
+#define TICKS_PER_REV 1000  // encoder ticks per 2pi
 #endif
-#ifndef TICKS_PER_REV  // encoder ticks per 2pi
-#define TICKS_PER_REV 1000
+#ifndef LOG_LENGTH
+#define LOG_LENGTH 4000     // Number of points in data loggers
 #endif
-#ifndef LOG_LENGTH     // num data points in data loggers
-#define LOG_LENGTH 2000
+#ifndef T
+#define T 0.001             // Sampling Period (1kHz)
 #endif
-#ifndef T              // sampling period from f=1kHz
-#define T 0.001
+#ifndef COUNT_PER_SEC
+#define COUNT_PER_SEC 1000  // 1/T
 #endif
-#ifndef A              // motor control parameters
-#define A 98.2499
+#ifndef A
+#define A 98.8363           // Motor params
 #endif
 #ifndef B
-#define B 546.9961
+#define B 559.8633
 #endif
 #ifndef LAMBDA_R
-#define LAMBDA_R 1
+#define LAMBDA_R 50         // Reg/Est poles
 #endif
-#ifndef P1             // the two motor positions to jump between
-#define P1 0
+#ifndef LAMBDA_E
+#define LAMBDA_E 200
 #endif
-#ifndef P2
-#define P2 2*PI
-#endif
+float32 P1 = 0;             // Desired positions
+float32 P2 = 2*PI;
 
 // Control Gains
-float K11 = 1/B * 3 * LAMBDA_R * LAMBDA_R;
-float K12 = 1/B * (3*LAMBDA_R - A);
-float K2 = 1/B * 3 * LAMBDA_R * LAMBDA_R * LAMBDA_R;
+float32 K11 = (float32) 1/B * 3 * LAMBDA_R * LAMBDA_R;
+float32 K12 = (float32) 1/B * (3*LAMBDA_R - A);
+float32 K2 = (float32) 1/B * 3 * LAMBDA_R * LAMBDA_R * LAMBDA_R;
+
+// Estimator Gains
+float32 L1 = (float32) 2*LAMBDA_E - A;
+float32 L2 = (float32) LAMBDA_E*LAMBDA_E - 2*A*LAMBDA_E + A*A;
 
 // Controller Variables
-float r = P1;    // desired position
-float sigma[2];  // regulator state variable
+float r = 0;    // desired position
+float sigma[3];  // regulator state variable (3 elem for consistent indexing)
 float u;         // applied voltage
 float y;         // current position
-float x1hat[2];  // motor position
-float x2hat[2];  // motor velocity
+float x1hat[3];  // motor position (0->past, 1->present, 2->future)
+float x2hat[3];  // motor velocity
 
 // Motor Controllers
 interrupt void TimerISR(void);  // timer0-based interrupt for lab i/o
@@ -69,12 +75,11 @@ Uint16 pwmCMP(float);           // pwm compare value calculator
 Uint16 tmr0_counter = 0;        // tracks timer interrupt entries for state switching
 
 // Data Loggers
-Uint16 i;                 // index of data arrays
+Uint16 i = 0;                 // index of data arrays
 float u_log[LOG_LENGTH];  // log desired average voltage
 float y_log[LOG_LENGTH];  // log actual angular position
 long ticks;
 float theta;
-
 
 int main(void)
 {
@@ -182,30 +187,26 @@ interrupt void TimerISR(void)
 {
     // Sense (position)
     ticks = EQep1Regs.QPOSCNT;  // convert Uint32 to int32
-    y = (float) ticks * TWOPI / TICKS_PER_REV;
+    y = (float32) ticks * TWOPI / TICKS_PER_REV;
+    x1hat[2] = x1hat[1] + T*x2hat[1] - T*L1*(x1hat[1] - y);
+    x2hat[2] = x2hat[1] + T*-A*x2hat[1] + T*B*u - T*L2*(x1hat[1] - y);
 
     // Control Model
-    // output voltage
-    u = -K11*x1hat[1] - K12*x2hat[1] - K2*sigma[1];
-    #ifdef ANTIWINDUP
-    if (u > VIN || u < -VIN) {
-        u = -K11*xhat1[0] - K12*x2hat[0] - K2*sigma[0];
-        x1hat[0] = x1hat[1];  // make current, previous (AFTER antiwindup)
-        x2hat[0] = x2hat[1];
-        sigma[0] = sigma[1];
-    } else {  // If saturated, don't increment state vars
-        x1hat[1] = x1hat[1] + T * x2hat[0];
-        x2hat[1] = x2hat[0] + T * ((-A-B)*x2hat[0] + B*u);  // TODO: check u order
-        sigma[1] = sigma[1] + T * (y - r);
-    }
-    #else
-    x1hat[0] = x1hat[1];  // make current, previous (AFTER antiwindup)
+    u = -K11*x1hat[0] - K12*x2hat[0] - K2*sigma[0];  // output voltage to correct from past state
+//    if (u < -VIN || VIN < u) {  // antipwindup: clip at umax, don't calculate future
+//        u = abs(u) / u * VIN;  // u = sgn(u) * VIN
+//        sigma[2] = sigma[1];
+//    } else {
+        sigma[2] = sigma[1] + T*(y - r);
+//    }
+
+    // Slide state variables forward
+    x1hat[0] = x1hat[1];
+    x1hat[1] = x1hat[2];
     x2hat[0] = x2hat[1];
+    x2hat[1] = x2hat[2];
     sigma[0] = sigma[1];
-    x1hat[1] = x1hat[0] + T * x2hat[0];
-    x2hat[1] = x2hat[0] + T * ((-A-B)*x2hat[0] + B*u);  // TODO: check u order
-    sigma[1] = sigma[0] + T * (y - r);
-    #endif
+    sigma[1] = sigma[2];
 
     // Actuate (motor voltage)
     EPwm1Regs.CMPA.bit.CMPA = pwmCMP(u);
@@ -220,10 +221,12 @@ interrupt void TimerISR(void)
 
     // Exiting interrupt
     tmr0_counter++;
-    // jump between positions every half-log (want 2 cycles' data)
-    if (tmr0_counter % LOG_LENGTH/2 == 0) {
-        if (r == P1) r = P2;
-        if (r == P2) r = P1;
+    if (tmr0_counter % 1000 == 0) {
+        if (r == 0) {
+            r = P2;
+        } else if (r == P2) {
+            r = P1;
+        }
         tmr0_counter = 0;
     }
     PieCtrlRegs.PIEACK.all = M_INT1;
