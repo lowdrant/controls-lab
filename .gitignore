@@ -70,6 +70,9 @@ RemoteSystemsTempFiles
 # Don't push misc class documents
 misc/
 
+# ignore homework
+HW*/
+
 # No prelabs
 *Prelab*
 
