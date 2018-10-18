@@ -1,9 +1,9 @@
 /**
- * Lab6 Task2a for ECE4550 Fall 2018
+ * Lab6 Task2b for ECE4550 Fall 2018
  *
  * Goal:
- * Move a DC motor between 0 and 2PI
- * state space PI control. Transition time should take 1s.
+ * Move a DC motor between 0 and 10PI using
+ * state space PI control. Transition time should take 2s.
  *
  * Log 2 full cycles (4000 interrupts)
  *
@@ -29,7 +29,7 @@ float32 TWOPI = 2*PI;
 #define TICKS_PER_REV 1000  // encoder ticks per 2pi
 #endif
 #ifndef LOG_LENGTH
-#define LOG_LENGTH 4000     // Number of points in data loggers
+#define LOG_LENGTH 8000     // Number of points in data loggers
 #endif
 #ifndef T
 #define T 0.001             // Sampling Period (1kHz)
@@ -49,13 +49,14 @@ float32 TWOPI = 2*PI;
 #ifndef LAMBDA_E
 #define LAMBDA_E 200
 #endif
+
 float32 P1 = 0;             // Desired positions
-float32 P2 = 2*PI;
+float32 P2 = 10*PI;
 
 // Control Gains
 float32 K11 = (float32) 1/B * 3 * LAMBDA_R * LAMBDA_R;
 float32 K12 = (float32) 1/B * (3*LAMBDA_R - A);
-float32 K2 = (float32) 1/B * 3 * LAMBDA_R * LAMBDA_R * LAMBDA_R;
+float32 K2 = (float32) 1/B * LAMBDA_R * LAMBDA_R * LAMBDA_R;
 
 // Estimator Gains
 float32 L1 = (float32) 2*LAMBDA_E - A;
@@ -193,12 +194,12 @@ interrupt void TimerISR(void)
 
     // Control Model
     u = -K11*x1hat[0] - K12*x2hat[0] - K2*sigma[0];  // output voltage to correct from past state
-//    if (u < -VIN || VIN < u) {  // antipwindup: clip at umax, don't calculate future
-//        u = abs(u) / u * VIN;  // u = sgn(u) * VIN
-//        sigma[2] = sigma[1];
-//    } else {
+    if (u < -VIN || VIN < u) {  // antipwindup: clip at umax, don't calculate future
+        u = abs(u) / u * VIN;   // u = sgn(u) * VIN
+        sigma[2] = sigma[1];
+    } else {
         sigma[2] = sigma[1] + T*(y - r);
-//    }
+    }
 
     // Slide state variables forward
     x1hat[0] = x1hat[1];
@@ -221,7 +222,7 @@ interrupt void TimerISR(void)
 
     // Exiting interrupt
     tmr0_counter++;
-    if (tmr0_counter % 1000 == 0) {
+    if (tmr0_counter % 2000 == 0) {  // 2s/cycle
         if (r == 0) {
             r = P2;
         } else if (r == P2) {
