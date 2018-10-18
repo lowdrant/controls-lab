@@ -55,7 +55,7 @@ float32 P2 = 2*PI;
 // Control Gains
 float32 K11 = (float32) 1/B * 3 * LAMBDA_R * LAMBDA_R;
 float32 K12 = (float32) 1/B * (3*LAMBDA_R - A);
-float32 K2 = (float32) 1/B * 3 * LAMBDA_R * LAMBDA_R * LAMBDA_R;
+float32 K2 = (float32) 1/B * LAMBDA_R * LAMBDA_R * LAMBDA_R;
 
 // Estimator Gains
 float32 L1 = (float32) 2*LAMBDA_E - A;
@@ -193,12 +193,12 @@ interrupt void TimerISR(void)
 
     // Control Model
     u = -K11*x1hat[0] - K12*x2hat[0] - K2*sigma[0];  // output voltage to correct from past state
-//    if (u < -VIN || VIN < u) {  // antipwindup: clip at umax, don't calculate future
-//        u = abs(u) / u * VIN;  // u = sgn(u) * VIN
-//        sigma[2] = sigma[1];
-//    } else {
+    if (u < -VIN || VIN < u) {  // antipwindup: clip at umax, don't calculate future
+        u = abs(u) / u * VIN;  // u = sgn(u) * VIN
+        sigma[2] = sigma[1];
+    } else {
         sigma[2] = sigma[1] + T*(y - r);
-//    }
+    }
 
     // Slide state variables forward
     x1hat[0] = x1hat[1];
