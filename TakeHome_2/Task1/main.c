@@ -9,9 +9,6 @@
 
 #include "F2802x_Device.h"
 
-int i = 0;
-char test_char = '\0';
-Uint32 loop_count = 0;
 char cmd_char = '\0';
 Uint32 isr_count = 0;  // for debugging
 interrupt void serialISR(void);
@@ -31,7 +28,7 @@ int main(void)
     SysCtrlRegs.PLLSTS.bit.MCLKOFF = 0;           // detect failures
     SysCtrlRegs.PLLSTS.bit.DIVSEL = 3;            // divider (1)
     // Peripheral/SCI
-    SysCtrlRegs.LOSPCP.bit.LSPCLK = 0;            // 17.5MHz (1x sysclk)
+    SysCtrlRegs.LOSPCP.bit.LSPCLK = 0;            // 50MHz (1x sysclk)
     asm(" NOP"); asm(" NOP");
     SysCtrlRegs.PCLKCR0.bit.SCIAENCLK = 1;        // enable serial clock
     asm(" NOP"); asm(" NOP");
@@ -58,25 +55,28 @@ int main(void)
     GpioCtrlRegs.GPAMUX2.bit.GPIO28 = 1;
     GpioCtrlRegs.GPAMUX2.bit.GPIO29 = 1;
 
-    // Serial configuration
+    // Serial configuration (9600 baud, 8-bit packet, 1 stop bit, no parity)
     SciaRegs.SCIHBAUD = 0x2;                // 9600 baud (BRR=650)
     SciaRegs.SCILBAUD = 0x8a;
-    SciaRegs.SCICCR.bit.SCICHAR = 0b111;    // 8-bit serial packet (ASCII)
-    SciaRegs.SCICTL1.bit.SWRESET = 1;       // disable serial reset
-    SciaRegs.SCICTL1.bit.TXENA = 1;         // transmit enable001
+    SciaRegs.SCICCR.bit.SCICHAR = 0b111;    // 8-bit packet (ASCII)
+    SciaRegs.SCICCR.bit.STOPBITS = 0;       // 1 stop bit
+    SciaRegs.SCICCR.bit.PARITYENA = 0;      // disable parity
+    SciaRegs.SCICTL1.bit.SWRESET = 1;       // re-enable SCI
+    SciaRegs.SCICTL1.bit.TXENA = 1;         // transmit enable
     SciaRegs.SCICTL1.bit.RXENA = 1;         // recieve enable
 
     // Interrupt setup
     PieCtrlRegs.PIECTRL.bit.ENPIE = 1;
-    PieVectTable.SCIRXINTA = &serialISR;
-    PieCtrlRegs.PIEIER9.bit.INTx1 = 1;    // serial recieving interrupt
-    IER = 0x100;
+    PieVectTable.SCIRXINTA = &serialISR;  // serial receive ISR
+    PieCtrlRegs.PIEIER9.bit.INTx1 = 1;    // 9.1 interrupt (serial)
+    IER = 0x100;                          // activate group 9 path
     SciaRegs.SCICTL2.bit.RXBKINTENA = 1;  // enable rx interrupt
 
     SysCtrlRegs.WDCR = 0x28; EDIS; EINT;
     // ===============================End Setup================================
+    
+    // Feed watchdog
     while (1) {
-        loop_count++;
         SysCtrlRegs.WDKEY = 0x55;
         SysCtrlRegs.WDKEY = 0xAA;
     }
@@ -97,7 +97,7 @@ interrupt void serialISR(void)
     GpioDataRegs.GPASET.bit.GPIO1 = 1;
     GpioDataRegs.GPASET.bit.GPIO2 = 1;
     GpioDataRegs.GPASET.bit.GPIO3 = 1;
-    switch (cmd_char) {                   // re-activate selected LED
+    switch (cmd_char) {                 // re-activate selected LED
     case '0':
         GpioDataRegs.GPACLEAR.bit.GPIO0 = 1;
         break;
