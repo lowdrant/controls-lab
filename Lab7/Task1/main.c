@@ -17,7 +17,6 @@
 #ifndef PI
 #define PI 3.14159
 #endif
-float32 TWOPI = 2*PI;
 
 // Hardware Limitations
 #ifndef VIN
@@ -54,13 +53,21 @@ float32 TWOPI = 2*PI;
 #endif
 
 // Trajectory Constants
-float32 P1 = 0;       // Desired positions
-float32 P2 = 10*PI;
-float32 SC = 100;     // Speed limit
-float32 AC = 4000;    // Acceleration limit
-float32 ta = 0.0250;  // SC/AC (compiler doesn't like math in globals)
-float32 ts = 0.2892;  // (P2-P1)/SC - SC/AC
-
+#ifndef SC
+#define SC 100          // Speed limit
+#endif
+#ifndef AC
+#define AC 4000         // Acceleration limit
+#endif
+#ifndef P1
+#define P1 0            // Reference position 1
+#endif
+#ifndef P2
+#define P2 31.41592     // Reference position 2
+#endif
+float32 sc;             // speed and accleration multipliers
+float32 ac;
+float32 ta, ts;         // acceleration and stop times
 //=========================== End System Constants ===========================
 
 
@@ -73,9 +80,8 @@ Uint32 ISR_count = 0;           // count interrupts (generally useful)
 // to be set in TimerISR (compiler doesn't like them set out here)
 float32 pos_start;  // starting position of traj
 float32 pos_end;    // ending position of traj
-float32 t1;         // initial trajectory time (not const b/c traj changes)
-float32 t2;         // ending trajectory time (not const b/c traj changes)
-float32 dir = 1;    // sign tracker for trajectory math
+float32 t1;
+float32 t2;
 
 // Data Loggers
 float32 yref_log[LOG_LENGTH];      // desired motor pos
@@ -95,7 +101,6 @@ int main(void)
     ts = (P2 - P1)/SC - SC/AC;
     t1 = 0;
     t2 = 2*ta + ts;
-    dir = 1;
 
     //==============================Begin Setup==============================
     DINT; EALLOW; WdRegs.WDCR.all = 0x68;
@@ -200,42 +205,38 @@ int main(void)
  */
 interrupt void TimerISR(void)
 {
-    // Trajectory Initialization
-    // change direction every 0.5s
-    if (ISR_count % (Uint32) ((float32) COUNT_PER_SEC / 2) == 0) {
-        pos_start = (pos_start == P1) ? P2 : P1;  // swap start & end pos
-        pos_end = (pos_end == P1) ? P2 : P1;
-        dir *= -1;  // switch signs for motion calcs
-        t1 = time;  // move time parameters
-        t2 = 2*ta + t2 + t1;
-    }
-    // ensure start at P1, going positive
-    // necessary b/c 0 mod x == 0 (if statement above)
-    if (time == 0) {
-        pos_start = P1;
-        pos_end = P2;
-        dir = 1;
-    }
-
     // Trajectory Computation
-    // dir tracks the +/- sign for CW vs. CCW movement
-    if (time < t1) {              // Rest @start
+    // change direction every 0.5s
+    if (fmodf(time, 1) < 0.5) {
+        pos_start = (float32) P1;
+        pos_end = (float32) P2;
+        sc = (float32) SC;
+        ac = (float32) AC;
+    } else {
+        pos_start = (float32) P2;
+        pos_end = (float32) P1;
+        sc = (float32) -SC;
+        ac = (float32) -AC;
+    }
+    // update trajectory
+    float32 tmod = fmodf(time, 0.5);  // track 0.5s intervals
+    if (tmod < t1) {              // Rest @start
         yref = pos_start;
         yrefdot = 0;
         yref2dot = 0;
-    } else if (time < t1 + ta) {  // Speeding up
-        yref = pos_start + dir*0.5*AC*pow(time - t1, 2);
-        yrefdot = dir * AC * (time - t1);
-        yref2dot = dir * AC;
-    } else if (time < t2 - ta) {  // Coasting
-        yref = 0.5*(pos_start+pos_end) + dir*SC*(time - 0.5*(t1+t2));
-        yrefdot = dir * SC;
+    } else if (tmod < t1 + ta) {  // Speeding up
+        yref = pos_start + 0.5*ac*pow(tmod - t1, 2);
+        yrefdot = ac * (tmod - t1);
+        yref2dot = ac;
+    } else if (tmod < t2 - ta) {  // Coasting
+        yref = 0.5*(pos_start+pos_end) + sc*(tmod - 0.5*(t1+t2));
+        yrefdot = sc;
         yref2dot = 0;
-    } else if (time < t2) {       // Slowing down
-        yref = pos_end - dir*0.5*AC*pow(t2 - time, 2);
-        yrefdot = dir * AC * (t2 - time);
-        yref2dot = -dir * AC;
-    } else if (time > t2) {
+    } else if (tmod < t2) {       // Slowing down
+        yref = pos_end - 0.5*ac*pow(t2 - tmod, 2);
+        yrefdot = ac * (t2 - tmod);
+        yref2dot = -ac;
+    } else if (tmod > t2) {
         yref = pos_end;
         yrefdot = 0;
         yref2dot = 0;
@@ -249,8 +250,8 @@ interrupt void TimerISR(void)
     }
 
     // Exiting Interrupt
-    ISR_count++;
-    time = ISR_count * T;  // num_interrupts * time_per_interrupt
+    ++ISR_count;
+    time = (float32) ISR_count * T;  // num_interrupts * time_per_interrupt
     PieCtrlRegs.PIEACK.all = M_INT1;
 }
 
