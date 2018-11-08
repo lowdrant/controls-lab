@@ -66,6 +66,7 @@ RemoteSystemsTempFiles
 *.cssproject
 *.cproject
 *.project
+targetConfigs/
 
 # Don't push misc class documents
 misc/
