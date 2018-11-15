@@ -15,8 +15,9 @@
 
 interrupt void TimerISR(void);  // timer0-based interrupt for lab i/o
 Uint16 chip_id = 0x00ff;        // i2c imu address initial guess
-Uint8 curbyte = 0;              // byte from over i2c
+char curbyte = 0;               // byte from over i2c
 Uint32 i = 0;                   // iteration var
+float32 data = 0;
 
 
 int main(void)
@@ -43,14 +44,14 @@ int main(void)
 
     // I2C GPIO Setup (Module A)
     // pull-up SDA & SCL, both open-drain mode
-    GpioCtrlRegs.GPDGMUX1.bit.GPIO104 = 0b01;  // SDAA (pull-up)
-    GpioCtrlRegs.GPDMUX1.bit.GPIO104 = 0b10;
+    GpioCtrlRegs.GPDGMUX1.bit.GPIO104 = 0;  // SDAA (pull-up)
+    GpioCtrlRegs.GPDMUX1.bit.GPIO104 = 1;
     GpioCtrlRegs.GPDPUD.bit.GPIO104 = 0;
-    GpioCtrlRegs.GPDODR.bit.GPIO104 = 1;       // open drain mode
-    GpioCtrlRegs.GPDGMUX1.bit.GPIO105 = 0b01;  // SCLA (pull-up)
-    GpioCtrlRegs.GPDMUX1.bit.GPIO105 = 0b10;
+    GpioCtrlRegs.GPDODR.bit.GPIO104 = 1;    // open drain mode
+    GpioCtrlRegs.GPDGMUX1.bit.GPIO105 = 0;  // SCLA (pull-up)
+    GpioCtrlRegs.GPDMUX1.bit.GPIO105 = 1;
     GpioCtrlRegs.GPDPUD.bit.GPIO105 = 0;
-    GpioCtrlRegs.GPDODR.bit.GPIO105 = 1;       // open drain mode
+    GpioCtrlRegs.GPDODR.bit.GPIO105 = 1;    // open drain mode
 
     // I2C Communication Setup (Module A)
     // master-rx, master-tx
@@ -82,7 +83,7 @@ int main(void)
     I2caRegs.I2CPSC.bit.IPSC = 20 - 1;       // i2c clkprediv
     I2caRegs.I2CCLKL = 95;                   // bus clkdiv hi-time
     I2caRegs.I2CCLKH = 95;                   // bus clkdiv lo-time
-    I2caRegs.I2CMDR.bit.IRS = 1;             // exit r1eset mode
+    I2caRegs.I2CMDR.bit.IRS = 1;             // exit reset mode
 
     // Timer0 Interrupt (ftmr=5kHz)
     CpuTimer0Regs.TCR.bit.TSS = 1;      // stop timer0
@@ -95,29 +96,45 @@ int main(void)
     IER = 1;
     CpuTimer0Regs.TCR.bit.TSS = 0;      // Re-enable timer0
 
+    //==========================Talk to Booster Pack=========================
+    EDIS;
+    // Power Cycle bmi160 (PMU_Status)
+    // talk to cmd register (0x7e)
+    while (I2caRegs.I2CMDR.bit.STP == 1);
+    I2caRegs.I2CCNT = 2;  // 3 byte-write
+    I2caRegs.I2CSAR.bit.SAR = 0x69;         // specify bmi160 address
+    I2caRegs.I2CDXR.bit.DATA = 0x7E;        // specify register to write (cmd|0x7E)
+    I2caRegs.I2CMDR.all = 0x2620;
+    while (I2caRegs.I2CSTR.bit.XRDY == 0);  // send `on` to cmd
+    I2caRegs.I2CDXR.bit.DATA = 0x11;
+
+//    while (I2caRegs.I2CSTR.bit.XRDY == 0);  // request data in pmu
+//    I2caRegs.I2CSAR.bit.SAR = 0x69;         // specify bmi160 address
+//    I2caRegs.I2CDXR.bit.DATA = 0x03;
+//    I2caRegs.I2CMDR.all = 0x2620;
+//    while(I2caRegs.I2CSTR.bit.ARDY == 0);   // read pmu status
+//    I2caRegs.I2CCNT = 1;
+//    I2caRegs.I2CMDR.all = 0x2420;
+//    while(I2caRegs.I2CSTR.bit.RRDY == 0);
+//    curbyte = I2caRegs.I2CDRR.bit.DATA;
+
+    // Chip_id value from bmi160
+    while (I2caRegs.I2CSTR.bit.XRDY == 0);   // wait for clear
+    I2caRegs.I2CCNT = 1;                    // 1 byte at a time...
+    I2caRegs.I2CDXR.bit.DATA = 0x00;        // chip id register address
+    I2caRegs.I2CMDR.all = 0x2620;           // tx w/start&stop bits
+    // rx chip_id
+    while(I2caRegs.I2CSTR.bit.ARDY == 0);
+    I2caRegs.I2CCNT = 1;
+    I2caRegs.I2CMDR.all = 0x2C20;  // rx w/start&stop bits
+    while(I2caRegs.I2CSTR.bit.RRDY == 0);
+    chip_id = I2caRegs.I2CDRR.bit.DATA;
+
+    //==========================Talk to Booster Pack=========================
+    EALLOW;
     WdRegs.WDCR.all = 0x28; EDIS; EINT;
+    EDIS; EINT;
     //===============================End Setup===============================
-
-    //==========================Talk to Booster Pack=========================
-
-    // Transmission (third world war third round / A decade of the weapon of sound above ground)
-
-    while(I2caRegs.I2CMDR.bit.STP == 1);  // wait for stop to be cleared
-    I2caRegs.I2CSAR.bit.SAR = chip_id;
-    I2caRegs.I2CCNT = 1;  // 1 bit at a time...
-    I2caRegs.I2CDXR.bit.DATA = curbyte;
-    I2caRegs.I2CMDR.all = 0x2E20;  // transmit w/start&stop
-
-    I2caRegs.I2CCNT = 1;  // 1 bit at a time...
-    I2caRegs.I2CMDR.all = 0x2C20;  // recieve w/start&stop
-    for (i = 0; i < 4; i++) {
-        while(I2caRegs.I2CSTR.bit.RRDY == 0);
-        curbyte = I2caRegs.I2CDRR.bit.DATA;
-        data += (curbyte) << (8*i);  // shift by entire bytes
-    }
-
-    //==========================Talk to Booster Pack=========================
-
 
     // feed the dog
     while (1) {
@@ -126,3 +143,13 @@ int main(void)
     }
 }
 
+
+/**
+ *
+ * I2C Communication @ 2Hz
+ *
+ */
+interrupt void TimerISR(void)
+{
+
+}
