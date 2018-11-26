@@ -14,6 +14,7 @@
 #include "math.h"
 
 interrupt void TimerISR(void);  // timer0-based interrupt for lab i/o
+void delay2us(void);            // 2 microsecond delay between writes
 Uint16 chip_id = 0x00ff;        // i2c imu address initial guess
 char curbyte = 0;               // byte from over i2c
 Uint32 i = 0;                   // iteration var
@@ -97,39 +98,65 @@ int main(void)
     CpuTimer0Regs.TCR.bit.TSS = 0;      // Re-enable timer0
 
     //==========================Talk to Booster Pack=========================
-    EDIS;
-    // Power Cycle bmi160 (PMU_Status)
-    // talk to cmd register (0x7e)
-    while (I2caRegs.I2CMDR.bit.STP == 1);
-    I2caRegs.I2CCNT = 2;  // 3 byte-write
-    I2caRegs.I2CSAR.bit.SAR = 0x69;         // specify bmi160 address
-    I2caRegs.I2CDXR.bit.DATA = 0x7E;        // specify register to write (cmd|0x7E)
-    I2caRegs.I2CMDR.all = 0x2620;
-    while (I2caRegs.I2CSTR.bit.XRDY == 0);  // send `on` to cmd
-    I2caRegs.I2CDXR.bit.DATA = 0x11;
+    EDIS;  // re-enable register protections (for defensive programming)
 
-//    while (I2caRegs.I2CSTR.bit.XRDY == 0);  // request data in pmu
-//    I2caRegs.I2CSAR.bit.SAR = 0x69;         // specify bmi160 address
-//    I2caRegs.I2CDXR.bit.DATA = 0x03;
-//    I2caRegs.I2CMDR.all = 0x2620;
-//    while(I2caRegs.I2CSTR.bit.ARDY == 0);   // read pmu status
-//    I2caRegs.I2CCNT = 1;
-//    I2caRegs.I2CMDR.all = 0x2420;
-//    while(I2caRegs.I2CSTR.bit.RRDY == 0);
-//    curbyte = I2caRegs.I2CDRR.bit.DATA;
+    /** Power-up BMI160 (0x69)
+     *  Tell BMI160 to prepare to have CMD register written
+     *   - Write cmd register address (0x7E) to BMI160
+     *   - Write value to be stored (0x11) in cmd to BMI16
+     * tx 2 bytes
+     */
+    while (I2caRegs.I2CMDR.bit.STP == 1);   // wait for bus to free up
+    I2caRegs.I2CSAR.bit.SAR = 0x69;         // specify BMI160 address
+    I2caRegs.I2CCNT = 2;                    // write 2 bytes
+    I2caRegs.I2CDXR.bit.DATA = 0x7E;        // send register to be written
+    I2caRegs.I2CMDR.all = 0x2620;           // master tx, no stop cond
+    delay2us();                       // wait after command
+    while (I2caRegs.I2CSTR.bit.XRDY == 0);  // wait for 1st byte sent
+    I2caRegs.I2CDXR.bit.DATA = 0x11;        // send `turn on power` val
+    delay2us();
 
-    // Chip_id value from bmi160
-    while (I2caRegs.I2CSTR.bit.XRDY == 0);   // wait for clear
-    I2caRegs.I2CCNT = 1;                    // 1 byte at a time...
-    I2caRegs.I2CDXR.bit.DATA = 0x00;        // chip id register address
-    I2caRegs.I2CMDR.all = 0x2620;           // tx w/start&stop bits
-    // rx chip_id
+    /** Verify BMI160 power (check PMU_Status)
+     *  Tell BMI160 to send value stored in pmu_status register
+     *   - Write PMU_Status address (0x03)
+     *   - Read value
+     * tx 1 byte
+     * rx 1 byte
+     *
+     * This isn't specifically required by the lab check off, but being able
+     * to do so is important for requesting data.
+     */
+    // tx: request pmu status
+    while (I2caRegs.I2CSTR.bit.XRDY == 0);
+    I2caRegs.I2CCNT = 1;
+    I2caRegs.I2CDXR.bit.DATA = 0x03;  // pmu_status addr
+    I2caRegs.I2CMDR.all = 0x2620;     // tx, no stop
+    delay2us();
     while(I2caRegs.I2CSTR.bit.ARDY == 0);
     I2caRegs.I2CCNT = 1;
-    I2caRegs.I2CMDR.all = 0x2C20;  // rx w/start&stop bits
+    I2caRegs.I2CMDR.all = 0x2420;     // rx, no stop
     while(I2caRegs.I2CSTR.bit.RRDY == 0);
-    chip_id = I2caRegs.I2CDRR.bit.DATA;
+    curbyte = I2caRegs.I2CDRR.bit.DATA;
 
+    /** Request value stored in chip_id register
+     *  Tell BMI160 to send value in chip_id register
+     *   - Write chip_id address (0x00)
+     *   - Read value
+     * tx 1 byte
+     * rx 1 byte
+     */
+    // tx: request chip_id
+    while (I2caRegs.I2CSTR.bit.XRDY == 0);  // wait for clear
+    I2caRegs.I2CCNT = 1;
+    I2caRegs.I2CDXR.bit.DATA = 0x00;
+    I2caRegs.I2CMDR.all = 0x2620;           // tx, no stop
+    delay2us();
+    // rx requested value
+    while(I2caRegs.I2CSTR.bit.ARDY == 0);   // wait to switch to rx
+    I2caRegs.I2CCNT = 1;
+    I2caRegs.I2CMDR.all = 0x2C20;           // rx, yes stop cond
+    while(I2caRegs.I2CSTR.bit.RRDY == 0);   // wait for read-readiness
+    chip_id = I2caRegs.I2CDRR.bit.DATA;
     //==========================Talk to Booster Pack=========================
     EALLOW;
     WdRegs.WDCR.all = 0x28; EDIS; EINT;
@@ -144,7 +171,21 @@ int main(void)
 }
 
 
-/**
+/** delay2us
+ *
+ * Provides 2 microsecond delay @200MHz for I2C interface
+ *
+ * From p.90 of the data sheet, the BMI160 chip requires a 2 us delay
+ * following a write command while in normal mode.
+ *
+ */
+void delay2us(void)
+{
+    int i;
+    for (i = 0; i < 400; i++) {}
+}
+
+/** TimerISR
  *
  * I2C Communication @ 2Hz
  *
@@ -153,3 +194,5 @@ interrupt void TimerISR(void)
 {
 
 }
+
+

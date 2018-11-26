@@ -17,10 +17,12 @@
 #endif
 
 interrupt void TimerISR(void);  // timer0-based interrupt for lab i/o
-char request_byte(char, char);
+void delay2us(void);            // 2 microsecond delay between writes
+char request_byte(char, char);  // simplify requesting data
 char xlobit, xhibit, ylobit, yhibit, zlobit, zhibit;
 float32 xacc = 0, yacc = 0, zacc = 0;
 
+// TODO: Adjust watchdog timer for I2C data retrieval
 
 int main(void)
 {
@@ -167,6 +169,21 @@ interrupt void TimerISR(void)
 //    zacc = (zhibit << 8) + zlobit;
 
     PieCtrlRegs.PIEACK.all = M_INT1;
+}
+
+
+/** delay2us
+ *
+ * Provides 2 microsecond delay @200MHz for I2C interface
+ *
+ * From p.90 of the data sheet, the BMI160 chip requires a 2 us delay
+ * following a write command while in normal mode.
+ *
+ */
+void delay2us(void)
+{
+    int i;
+    for (i = 0; i < 400; i++) {}
 }
 
 
