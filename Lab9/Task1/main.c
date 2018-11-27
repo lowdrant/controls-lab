@@ -16,6 +16,7 @@
 interrupt void TimerISR(void);  // timer0-based interrupt for lab i/o
 void delay2us(void);            // 2 microsecond delay between writes
 Uint16 chip_id = 0x00ff;        // i2c imu address initial guess
+Uint16 pmu_status = 0xffff;     // pmu status var
 char curbyte = 0;               // byte from over i2c
 Uint32 i = 0;                   // iteration var
 float32 data = 0;
@@ -111,7 +112,7 @@ int main(void)
     I2caRegs.I2CCNT = 2;                    // write 2 bytes
     I2caRegs.I2CDXR.bit.DATA = 0x7E;        // send register to be written
     I2caRegs.I2CMDR.all = 0x2620;           // master tx, no stop cond
-    delay2us();                       // wait after command
+    delay2us();                             // wait after command
     while (I2caRegs.I2CSTR.bit.XRDY == 0);  // wait for 1st byte sent
     I2caRegs.I2CDXR.bit.DATA = 0x11;        // send `turn on power` val
     delay2us();
@@ -125,18 +126,21 @@ int main(void)
      *
      * This isn't specifically required by the lab check off, but being able
      * to do so is important for requesting data.
+     *
+     * This must be done separately from the cmd write above to allow the
+     * change to take effect.
      */
-    // tx: request pmu status
-    while (I2caRegs.I2CSTR.bit.XRDY == 0);
+    for (i = 0; i < 760e3; i++);  // wait 4ms for changes to take effect
+    while (I2caRegs.I2CSTR.bit.XRDY == 0);  // tx
     I2caRegs.I2CCNT = 1;
     I2caRegs.I2CDXR.bit.DATA = 0x03;  // pmu_status addr
     I2caRegs.I2CMDR.all = 0x2620;     // tx, no stop
     delay2us();
-    while(I2caRegs.I2CSTR.bit.ARDY == 0);
+    while(I2caRegs.I2CSTR.bit.ARDY == 0);  // rx
     I2caRegs.I2CCNT = 1;
     I2caRegs.I2CMDR.all = 0x2420;     // rx, no stop
     while(I2caRegs.I2CSTR.bit.RRDY == 0);
-    curbyte = I2caRegs.I2CDRR.bit.DATA;
+    pmu_status = I2caRegs.I2CDRR.bit.DATA;
 
     /** Request value stored in chip_id register
      *  Tell BMI160 to send value in chip_id register
@@ -158,6 +162,7 @@ int main(void)
     while(I2caRegs.I2CSTR.bit.RRDY == 0);   // wait for read-readiness
     chip_id = I2caRegs.I2CDRR.bit.DATA;
     //==========================Talk to Booster Pack=========================
+
     EALLOW;
     WdRegs.WDCR.all = 0x28; EDIS; EINT;
     EDIS; EINT;
@@ -181,8 +186,8 @@ int main(void)
  */
 void delay2us(void)
 {
-    int i;
-    for (i = 0; i < 400; i++) {}
+    Uint16 i;
+    for (i = 0; i < 100; i++);
 }
 
 /** TimerISR
@@ -194,5 +199,3 @@ interrupt void TimerISR(void)
 {
 
 }
-
-
