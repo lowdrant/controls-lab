@@ -16,9 +16,15 @@
 #define IMU_ADDR 0x69
 #endif
 
+// Handle I2C comms
 interrupt void TimerISR(void);  // timer0-based interrupt for lab i/o
 void delay2us(void);            // 2 microsecond delay between writes
-char request_byte(char, char);  // simplify requesting data
+Uint16 acc_range = 2;           // max abs reading of acceleration
+float32 acc_scale = 0;          // max reading/ max 0bVal for conversion
+char curbyte = 0;
+
+// Data Loggers
+Uint32 i = 0;
 char xlobit, xhibit, ylobit, yhibit, zlobit, zhibit;
 float32 xacc = 0, yacc = 0, zacc = 0;
 
@@ -100,14 +106,45 @@ int main(void)
     IER = 1;
     CpuTimer0Regs.TCR.bit.TSS = 0;      // Re-enable timer0
 
-    // Power on Booster Pack
+    // Booster Pack Interface
+    // Power on accelerometer
     while (I2caRegs.I2CMDR.bit.STP == 1);
     I2caRegs.I2CCNT = 2;
     I2caRegs.I2CSAR.bit.SAR = 0x69;         // specify bmi160
     I2caRegs.I2CDXR.bit.DATA = 0x7E;        // write to cmd register
-    I2caRegs.I2CMDR.all = 0x2E20;
-    while (I2caRegs.I2CSTR.bit.XRDY == 0);  // send `on` to cmd
-    I2caRegs.I2CDXR.bit.DATA = 0x11;
+    I2caRegs.I2CMDR.all = 0x2620;
+    delay2us();
+    while (I2caRegs.I2CSTR.bit.XRDY == 0);
+    I2caRegs.I2CDXR.bit.DATA = 0x11;   // send `on` to cmd
+    delay2us();
+    // Read acceleration range
+    while (I2caRegs.I2CSTR.bit.XRDY == 0);
+    I2caRegs.I2CCNT = 1;
+    I2caRegs.I2CDXR.bit.DATA = 0x41;  // ACC_RANGE register
+    I2caRegs.I2CMDR.all = 0x2620;
+    delay2us();
+    while(I2caRegs.I2CSTR.bit.ARDY == 0);
+    I2caRegs.I2CCNT = 1;
+    I2caRegs.I2CMDR.all = 0x2420;
+    while(I2caRegs.I2CSTR.bit.RRDY == 0);
+    curbyte = I2caRegs.I2CDRR.bit.DATA;
+    switch (curbyte) {  // p. 56-57 BMI datasheet
+    case 0b0101:
+        acc_range = 4;
+        break;
+    case 0x1000:
+        acc_range = 8;
+        break;
+    case 0b1100:
+        acc_range = 16;
+        break;
+    default:
+        acc_range = 2;
+        break;
+    }
+    acc_scale = (float32) acc_range / 0xFFFF;
+
+
 
 //    WdRegs.WDCR.all = 0x28;
     EDIS; EINT;
@@ -121,52 +158,51 @@ int main(void)
 }
 
 
-/**
+/** TimerISR
  *
  * I2C Communication @ 2Hz
+ *
+ * Read x,y,z acceleration.
+ *
+ * Takes ~2.6ms to complete.
  *
  */
 interrupt void TimerISR(void)
 {
-    // get xdata
+    // request data all at once
+    // data registers sequential, so can for-loop thru
     while (I2caRegs.I2CSTR.bit.XRDY == 0);   // wait for clear
-    I2caRegs.I2CSAR.bit.SAR = 0x69;
-    I2caRegs.I2CCNT = 1;
-    I2caRegs.I2CDXR.bit.DATA = 0x14;          // send register
-    I2caRegs.I2CMDR.all = 0x2E20;
-    while(I2caRegs.I2CSTR.bit.ARDY == 0);    // wait to read
-    I2caRegs.I2CCNT = 1;
-    I2caRegs.I2CMDR.all = 0x2C20;
+    I2caRegs.I2CCNT = 6;
+    I2caRegs.I2CDXR.bit.DATA = 0x12;         // x lo byte
+    I2caRegs.I2CMDR.all = 0x2620;
+    delay2us();
+    for (i = 1; i < 6; i++) {
+        while (I2caRegs.I2CSTR.bit.XRDY == 0);
+        I2caRegs.I2CDXR.bit.DATA = 0x12 + i;
+        delay2us();
+    }
+
+    // read data all at once
+    //   do not for loop for sake of explicitness
+    while(I2caRegs.I2CSTR.bit.ARDY == 0);
+    I2caRegs.I2CCNT = 6;
+    I2caRegs.I2CMDR.all = 0x2420;
     while(I2caRegs.I2CSTR.bit.RRDY == 0);
     xlobit = I2caRegs.I2CDRR.bit.DATA;
-
-    while (I2caRegs.I2CSTR.bit.XRDY == 0);   // wait for clear
-    I2caRegs.I2CSAR.bit.SAR = 0x69;
-    I2caRegs.I2CCNT = 1;
-    I2caRegs.I2CDXR.bit.DATA = 0x15;          // send register
-    I2caRegs.I2CMDR.all = 0x2E20;
-    while(I2caRegs.I2CSTR.bit.ARDY == 0);    // wait to read
-    I2caRegs.I2CCNT = 1;
-    I2caRegs.I2CMDR.all = 0x2C20;
     while(I2caRegs.I2CSTR.bit.RRDY == 0);
     xhibit = I2caRegs.I2CDRR.bit.DATA;
+    while(I2caRegs.I2CSTR.bit.RRDY == 0);
+    ylobit = I2caRegs.I2CDRR.bit.DATA;
+    while(I2caRegs.I2CSTR.bit.RRDY == 0);
+    yhibit = I2caRegs.I2CDRR.bit.DATA;
+    while(I2caRegs.I2CSTR.bit.RRDY == 0);
+    zlobit = I2caRegs.I2CDRR.bit.DATA;
+    while(I2caRegs.I2CSTR.bit.RRDY == 0);
+    zhibit = I2caRegs.I2CDRR.bit.DATA;
 
-    xacc = (xhibit << 8) + xlobit;
-
-//    xlobit = request_byte(IMU_ADDR, 0x12);
-//    xhibit = request_byte(IMU_ADDR, 0x13);
-
-    // get ydata
-//    ylobit = request_byte(IMU_ADDR, 0x14);
-//    yhibit = request_byte(IMU_ADDR, 0x15);
-//
-//    // get zdata
-//    zlobit = request_byte(IMU_ADDR, 0x16);
-//    zhibit = request_byte(IMU_ADDR, 0x17);
-
-    xacc = (xhibit << 8) + xlobit;
-//    yacc = (yhibit << 8) + ylobit;
-//    zacc = (zhibit << 8) + zlobit;
+    xacc = ((xhibit << 8) + xlobit) * acc_scale;
+    yacc = ((yhibit << 8) + ylobit) * acc_scale;
+    zacc = ((zhibit << 8) + zlobit) * acc_scale;
 
     PieCtrlRegs.PIEACK.all = M_INT1;
 }
@@ -182,23 +218,6 @@ interrupt void TimerISR(void)
  */
 void delay2us(void)
 {
-    int i;
-    for (i = 0; i < 400; i++) {}
-}
-
-
-char request_byte(char addr, char reg)
-{
-    while (I2caRegs.I2CSTR.bit.XRDY == 0);   // wait for clear
-    I2caRegs.I2CSAR.bit.SAR = addr;
-    I2caRegs.I2CCNT = 1;
-    I2caRegs.I2CDXR.bit.DATA = reg;          // send register
-    I2caRegs.I2CMDR.all = 0x2620;
-    while(I2caRegs.I2CSTR.bit.ARDY == 0);    // wait to read
-    I2caRegs.I2CCNT = 1;
-    I2caRegs.I2CMDR.all = 0x2420;
-    while(I2caRegs.I2CSTR.bit.RRDY == 0);
-    char out = I2caRegs.I2CDRR.bit.DATA;
-
-    return out;
+    Uint16 i;
+    for (i = 0; i < 400; i++);
 }
