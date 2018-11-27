@@ -15,8 +15,17 @@
 #ifndef IMU_ADDR
 #define IMU_ADDR 0x69
 #endif
+#ifndef CMD_REGISTER
+#define CMD_REGISTER 0x7E
+#endif
+#ifndef ACC_RANGE_REGISTER
+#define ACC_RANGE_REGISTER 0x41
+#endif
+#ifndef X_ACC_LOW_BYTE
+#define X_ACC_LOW_BYTE 0x12
+#endif
 
-// Handle I2C comms
+// I2C Handlers
 interrupt void TimerISR(void);  // timer0-based interrupt for lab i/o
 void delay2us(void);            // 2 microsecond delay between writes
 Uint16 acc_range = 2;           // max abs reading of acceleration
@@ -28,7 +37,6 @@ Uint32 i = 0;
 char xlobit, xhibit, ylobit, yhibit, zlobit, zhibit;
 float32 xacc = 0, yacc = 0, zacc = 0;
 
-// TODO: Adjust watchdog timer for I2C data retrieval
 
 int main(void)
 {
@@ -54,17 +62,16 @@ int main(void)
 
     // I2C GPIO Setup (Module A)
     // pull-up SDA & SCL, both open-drain mode
-    GpioCtrlRegs.GPDGMUX1.bit.GPIO104 = 0;  // SDAA (pull-up)
+    GpioCtrlRegs.GPDGMUX1.bit.GPIO104 = 0;  // SDAA (pulled-up)
     GpioCtrlRegs.GPDMUX1.bit.GPIO104 = 1;
     GpioCtrlRegs.GPDPUD.bit.GPIO104 = 0;
     GpioCtrlRegs.GPDODR.bit.GPIO104 = 1;    // open drain mode
-    GpioCtrlRegs.GPDGMUX1.bit.GPIO105 = 0;  // SCLA (pull-up)
+    GpioCtrlRegs.GPDGMUX1.bit.GPIO105 = 0;  // SCLA (pulled-up)
     GpioCtrlRegs.GPDMUX1.bit.GPIO105 = 1;
     GpioCtrlRegs.GPDPUD.bit.GPIO105 = 0;
-    GpioCtrlRegs.GPDODR.bit.GPIO105 = 1;    // open drain mode
+    GpioCtrlRegs.GPDODR.bit.GPIO105 = 1;
 
     // I2C Communication Setup (Module A)
-    // master-rx, master-tx
     //
     // Choose I2C module frequency:
     // I2C freq limited to [7Mhz, 12Mhz] by protocol
@@ -95,23 +102,24 @@ int main(void)
     I2caRegs.I2CCLKH = 95;                   // bus clkdiv lo-time
     I2caRegs.I2CMDR.bit.IRS = 1;             // exit reset mode
 
-    // Timer0 Interrupt (ftmr=5kHz)
-    CpuTimer0Regs.TCR.bit.TSS = 1;      // stop timer0
+    // Timer0 Interrupt
+    // Ttmr = 0.5s -> ftmr = 2Hz
+    CpuTimer0Regs.TCR.bit.TSS = 1;
     CpuTimer0Regs.PRD.all = 10e6 - 1;   // 200Mhz->2Hz
-    CpuTimer0Regs.TCR.bit.TRB = 1;      // load timer division
-    CpuTimer0Regs.TCR.bit.TIE = 1;      // Timer Interrupt Enable
-    PieCtrlRegs.PIECTRL.bit.ENPIE = 1;
+    CpuTimer0Regs.TCR.bit.TRB = 1;
+    CpuTimer0Regs.TCR.bit.TIE = 1;
+    PieCtrlRegs.PIECTRL.bit.ENPIE = M_INT1;
     PieVectTable.TIMER0_INT = &TimerISR;
     PieCtrlRegs.PIEIER1.bit.INTx7 = 1;
     IER = 1;
-    CpuTimer0Regs.TCR.bit.TSS = 0;      // Re-enable timer0
+    CpuTimer0Regs.TCR.bit.TSS = 0;
 
-    // Booster Pack Interface
+    // Booster Pack Initial Interface
     // Power on accelerometer
-    while (I2caRegs.I2CMDR.bit.STP == 1);
+    while (I2caRegs.I2CMDR.bit.STP == 1);  // seize the means of communication
     I2caRegs.I2CCNT = 2;
-    I2caRegs.I2CSAR.bit.SAR = 0x69;         // specify bmi160
-    I2caRegs.I2CDXR.bit.DATA = 0x7E;        // write to cmd register
+    I2caRegs.I2CSAR.bit.SAR = IMU_ADDR;
+    I2caRegs.I2CDXR.bit.DATA = CMD_REGISTER;
     I2caRegs.I2CMDR.all = 0x2620;
     delay2us();
     while (I2caRegs.I2CSTR.bit.XRDY == 0);
@@ -120,7 +128,7 @@ int main(void)
     // Read acceleration range
     while (I2caRegs.I2CSTR.bit.XRDY == 0);
     I2caRegs.I2CCNT = 1;
-    I2caRegs.I2CDXR.bit.DATA = 0x41;  // ACC_RANGE register
+    I2caRegs.I2CDXR.bit.DATA = ACC_RANGE_REGISTER;
     I2caRegs.I2CMDR.all = 0x2620;
     delay2us();
     while(I2caRegs.I2CSTR.bit.ARDY == 0);
@@ -145,8 +153,7 @@ int main(void)
     acc_scale = (float32) acc_range / 0xFFFF;
 
 
-
-//    WdRegs.WDCR.all = 0x28;
+    WdRegs.WDCR.all = 0x2f;  // watchdog, reset period = 3.277ms
     EDIS; EINT;
     //===============================End Setup===============================
 
@@ -160,11 +167,10 @@ int main(void)
 
 /** TimerISR
  *
- * I2C Communication @ 2Hz
+ * Read x,y,z acceleration using I2C
  *
- * Read x,y,z acceleration.
- *
- * Takes ~2.6ms to complete.
+ * Full communcation takes ~2.6ms to complete.
+ * Reset watchdog timer periodically throughout loop to compensate.
  *
  */
 interrupt void TimerISR(void)
@@ -173,14 +179,18 @@ interrupt void TimerISR(void)
     // data registers sequential, so can for-loop thru
     while (I2caRegs.I2CSTR.bit.XRDY == 0);   // wait for clear
     I2caRegs.I2CCNT = 6;
-    I2caRegs.I2CDXR.bit.DATA = 0x12;         // x lo byte
+    I2caRegs.I2CDXR.bit.DATA = X_ACC_LOW_BYTE;
     I2caRegs.I2CMDR.all = 0x2620;
     delay2us();
     for (i = 1; i < 6; i++) {
         while (I2caRegs.I2CSTR.bit.XRDY == 0);
-        I2caRegs.I2CDXR.bit.DATA = 0x12 + i;
+        I2caRegs.I2CDXR.bit.DATA = X_ACC_LOW_BYTE + i;
         delay2us();
     }
+
+    // reset watchdog midway between r/w
+    WdRegs.WDKEY.all = 0x55;
+    WdRegs.WDKEY.all = 0xAA;
 
     // read data all at once
     //   do not for loop for sake of explicitness
