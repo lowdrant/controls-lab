@@ -12,25 +12,30 @@
  */
 #include "F2837xD_device.h"
 #include "math.h"
+//============================Begin I2C Constants=============================
 #ifndef IMU_ADDR
-#define IMU_ADDR 0x69
+#define IMU_ADDR 0x69            // i2c address of BMI160 IMU chip
 #endif
 #ifndef CMD_REGISTER
-#define CMD_REGISTER 0x7E
+#define CMD_REGISTER 0x7E        // controls power/speed status (p.81)
 #endif
 #ifndef ACC_RANGE_REGISTER
-#define ACC_RANGE_REGISTER 0x41
+#define ACC_RANGE_REGISTER 0x41  // stores maximum accleration reading (p.56)
 #endif
 #ifndef X_ACC_LOW_BYTE
-#define X_ACC_LOW_BYTE 0x12
+#define X_ACC_LOW_BYTE 0x12      // lowest register that stores acceleration
 #endif
+#ifndef MAX_ACC_BINARY
+#define MAX_ACC_BINARY 0xFFFF    // ,max raw acceleration value - 2 bytes
+#endif
+//=============================End I2C Constants==============================
 
 // I2C Handlers
 interrupt void TimerISR(void);  // timer0-based interrupt for lab i/o
 void delay2us(void);            // 2 microsecond delay between writes
-Uint16 acc_range = 2;           // max abs reading of acceleration
+Uint16 acc_range = 0;           // max abs reading of acceleration (default 2g)
 float32 acc_scale = 0;          // max reading/ max 0bVal for conversion
-char curbyte = 0;
+char curbyte = 0;               // generic intermediate data byte holder
 
 // Data Loggers
 Uint32 i = 0;
@@ -40,13 +45,13 @@ float32 xacc = 0, yacc = 0, zacc = 0;
 
 int main(void)
 {
-    //==============================Begin Setup==============================
+    //============================Begin MCU Setup=============================
     DINT; EALLOW; WdRegs.WDCR.all = 0x68;
 
     // Clocking (fclk = 200 MHz)
     ClkCfgRegs.CLKSRCCTL1.bit.OSCCLKSRCSEL = 1;   // external source (10 MHz)
     ClkCfgRegs.SYSPLLCTL1.bit.PLLCLKEN = 0;       // disable PLL to edit
-    ClkCfgRegs.SYSCLKDIVSEL.all = 0;              // clear division regist-er
+    ClkCfgRegs.SYSCLKDIVSEL.all = 0;              // clear division register
     ClkCfgRegs.SYSPLLMULT.all = 20;               // clock multiplier (p.334)
     while (ClkCfgRegs.SYSPLLSTS.bit.LOCKS != 1);  // wait for PLL lock
     ClkCfgRegs.SYSCLKDIVSEL.all = 1;              // 1+desired division
@@ -113,9 +118,10 @@ int main(void)
     PieCtrlRegs.PIEIER1.bit.INTx7 = 1;
     IER = 1;
     CpuTimer0Regs.TCR.bit.TSS = 0;
+    //=============================End MCU Setup==============================
 
-    // Booster Pack Initial Interface
-    // Power on accelerometer
+    //============================Begin IMU Setup=============================
+    // Power up
     while (I2caRegs.I2CMDR.bit.STP == 1);  // seize the means of communication
     I2caRegs.I2CCNT = 2;
     I2caRegs.I2CSAR.bit.SAR = IMU_ADDR;
@@ -123,12 +129,13 @@ int main(void)
     I2caRegs.I2CMDR.all = 0x2620;
     delay2us();
     while (I2caRegs.I2CSTR.bit.XRDY == 0);
-    I2caRegs.I2CDXR.bit.DATA = 0x11;   // send `on` to cmd
+    I2caRegs.I2CDXR.bit.DATA = 0x11;       // send `on` to cmd
     delay2us();
-    // Read acceleration range
+
+    // Compute acceleration resolution
     while (I2caRegs.I2CSTR.bit.XRDY == 0);
     I2caRegs.I2CCNT = 1;
-    I2caRegs.I2CDXR.bit.DATA = ACC_RANGE_REGISTER;
+    I2caRegs.I2CDXR.bit.DATA = ACC_RANGE_REGISTER;     // get max g
     I2caRegs.I2CMDR.all = 0x2620;
     delay2us();
     while(I2caRegs.I2CSTR.bit.ARDY == 0);
@@ -136,28 +143,25 @@ int main(void)
     I2caRegs.I2CMDR.all = 0x2420;
     while(I2caRegs.I2CSTR.bit.RRDY == 0);
     curbyte = I2caRegs.I2CDRR.bit.DATA;
-    switch (curbyte) {  // p. 56-57 BMI datasheet
+    switch (curbyte) {                                 // p.56-57 datasheet
     case 0b0101:
         acc_range = 4;
         break;
-    case 0x1000:
+    case 0b1000:
         acc_range = 8;
         break;
     case 0b1100:
         acc_range = 16;
         break;
     default:
-        acc_range = 2;
+        acc_range = 2;                                 // default/most common
         break;
     }
-    acc_scale = (float32) acc_range / 0xFFFF;
-
-
-    WdRegs.WDCR.all = 0x2f;  // watchdog, reset period = 3.277ms
-    EDIS; EINT;
-    //===============================End Setup===============================
+    acc_scale = (float32) acc_range / MAX_ACC_BINARY;  // compute g per raw
+    //=============================End IMU Setup==============================
 
     // feed the dog
+    WdRegs.WDCR.all = 0x28; EDIS; EINT;
     while (1) {
         WdRegs.WDKEY.all = 0x55;
         WdRegs.WDKEY.all = 0xAA;
@@ -168,31 +172,23 @@ int main(void)
 /** TimerISR
  *
  * Read x,y,z acceleration using I2C
+ * Frequency: 2 Hz
  *
- * Full communcation takes ~2.6ms to complete.
- * Reset watchdog timer periodically throughout loop to compensate.
+ * Only writes the lowest register to get data from (X_ACC_LOW_BYTE).
+ * The BMI160 auto-increments the register from which it sends data with
+ * successive repeated-start reads.
  *
  */
 interrupt void TimerISR(void)
 {
-    // request data all at once
-    // data registers sequential, so can for-loop thru
+    // request lowest data register
     while (I2caRegs.I2CSTR.bit.XRDY == 0);   // wait for clear
-    I2caRegs.I2CCNT = 6;
+    I2caRegs.I2CCNT = 1;
     I2caRegs.I2CDXR.bit.DATA = X_ACC_LOW_BYTE;
-    I2caRegs.I2CMDR.all = 0x2620;
-    delay2us();
-    for (i = 1; i < 6; i++) {
-        while (I2caRegs.I2CSTR.bit.XRDY == 0);
-        I2caRegs.I2CDXR.bit.DATA = X_ACC_LOW_BYTE + i;
-        delay2us();
-    }
+    I2caRegs.I2CMDR.all = 0x2620;            // DO NOT RELEASE
 
-    // reset watchdog midway between r/w
-    WdRegs.WDKEY.all = 0x55;
-    WdRegs.WDKEY.all = 0xAA;
-
-    // read data all at once
+    // read data in one go
+    //   6 bytes - x,y,z; 2 bytes each
     //   do not for loop for sake of explicitness
     while(I2caRegs.I2CSTR.bit.ARDY == 0);
     I2caRegs.I2CCNT = 6;
