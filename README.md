@@ -2,7 +2,7 @@
 ECE4550 lab projects as an undergrad at Georgia Tech
 
 ## Author
-Marion Anderson - [lmander42](https://github.com/lmander42)
+Marion Anderson - [lowdrant](https://github.com/lowdrant)
 
 ## License
 All rights reserved, except to the files in [docs/](docs), which I neither created nor own. The hardware documentation is freely available on Texas Instrument's website.
